@@ -381,13 +381,16 @@ func httpToModel(ctx context.Context, prior *httpCheckModel, h *client.HTTPCheck
 
 	var priorBasic *basicAuthModel
 	priorBearer := types.StringNull()
+	priorURL := types.StringNull()
 	if prior != nil {
 		priorBasic = prior.BasicAuth
 		priorBearer = prior.BearerToken
+		priorURL = prior.URL
 	}
 
 	return &httpCheckModel{
-		URL:                  types.StringValue(h.URL),
+		// API canonicalizes the URL; keep the user's form when equivalent.
+		URL:                  keepURL(priorURL, h.URL),
 		Method:               types.StringValue(h.Method),
 		TimeoutMs:            types.Int64Value(int64(h.Timeout)),
 		FollowRedirects:      types.BoolValue(h.FollowRedirects),

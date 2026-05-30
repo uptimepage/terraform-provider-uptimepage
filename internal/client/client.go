@@ -22,12 +22,14 @@ const DefaultEndpoint = "https://uptimepage.dev"
 type Client struct {
 	endpoint   string // base, no trailing slash
 	token      string
+	org        string // org slug; sent as X-Uptimepage-Org when non-empty
 	httpClient *http.Client
 }
 
 // New builds a Client. An empty endpoint falls back to the public default; a
-// nil httpClient falls back to http.DefaultClient.
-func New(endpoint, token string, httpClient *http.Client) *Client {
+// nil httpClient falls back to http.DefaultClient. org scopes API-token
+// requests to one organization (the server requires it for token auth).
+func New(endpoint, token, org string, httpClient *http.Client) *Client {
 	if endpoint == "" {
 		endpoint = DefaultEndpoint
 	}
@@ -37,6 +39,7 @@ func New(endpoint, token string, httpClient *http.Client) *Client {
 	return &Client{
 		endpoint:   strings.TrimRight(endpoint, "/"),
 		token:      token,
+		org:        org,
 		httpClient: httpClient,
 	}
 }
@@ -60,6 +63,9 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/json")
+	if c.org != "" {
+		req.Header.Set("X-Uptimepage-Org", c.org)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

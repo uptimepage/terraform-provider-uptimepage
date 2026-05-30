@@ -20,6 +20,7 @@ import (
 const (
 	envEndpoint = "UPTIMEPAGE_ENDPOINT"
 	envToken    = "UPTIMEPAGE_TOKEN"
+	envOrg      = "UPTIMEPAGE_ORG"
 )
 
 // Ensure the implementation satisfies the framework interface at compile time.
@@ -33,6 +34,7 @@ type Provider struct {
 type providerModel struct {
 	Endpoint types.String `tfsdk:"endpoint"`
 	Token    types.String `tfsdk:"token"`
+	Org      types.String `tfsdk:"org"`
 }
 
 // New returns the factory the provider server expects.
@@ -60,6 +62,10 @@ func (p *Provider) Schema(_ context.Context, _ provider.SchemaRequest, resp *pro
 				Sensitive:   true,
 				Description: "API token (Bearer). Create one from the UptimePage API tokens page. May also be set via the " + envToken + " environment variable.",
 			},
+			"org": schema.StringAttribute{
+				Optional:    true,
+				Description: "Organization slug to scope API-token requests to (sent as the X-Uptimepage-Org header). Required for token auth against managed resources. May also be set via the " + envOrg + " environment variable.",
+			},
 		},
 	}
 }
@@ -83,6 +89,11 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 			"Unknown API token",
 			"The token cannot depend on an unknown value. Set it to a known value or via "+envToken+".")
 	}
+	if cfg.Org.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("org"),
+			"Unknown organization",
+			"The org cannot depend on an unknown value. Set it to a known value or via "+envOrg+".")
+	}
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -91,6 +102,7 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 		cfg.Endpoint.ValueString(), cfg.Token.ValueString(),
 		os.Getenv(envEndpoint), os.Getenv(envToken),
 	)
+	org := cmp.Or(cfg.Org.ValueString(), os.Getenv(envOrg))
 
 	if token == "" {
 		resp.Diagnostics.AddAttributeError(path.Root("token"),
@@ -100,7 +112,7 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 		return
 	}
 
-	c := client.New(endpoint, token, nil)
+	c := client.New(endpoint, token, org, nil)
 	resp.ResourceData = c
 	resp.DataSourceData = c
 }
