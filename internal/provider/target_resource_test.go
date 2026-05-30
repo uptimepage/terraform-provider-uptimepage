@@ -29,10 +29,12 @@ resource "uptimepage_target" "t" {
   interval = 60
   tags     = ["acc"]
   check = {
-    type   = "http"
-    url    = "https://example.com/healthz"
-    method = "GET"
-    expected_status = { kind = "exact", exact = 200 }
+    type = "http"
+    http = {
+      url    = "https://example.com/healthz"
+      method = "GET"
+      expected_status = { kind = "exact", exact = 200 }
+    }
   }
 }
 `
@@ -49,7 +51,7 @@ func TestAccTargetResource_basic(t *testing.T) {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttrSet("uptimepage_target.t", "id"),
 					resource.TestCheckResourceAttr("uptimepage_target.t", "interval", "60"),
-					resource.TestCheckResourceAttr("uptimepage_target.t", "check.url", "https://example.com/healthz"),
+					resource.TestCheckResourceAttr("uptimepage_target.t", "check.http.url", "https://example.com/healthz"),
 				),
 			},
 			{

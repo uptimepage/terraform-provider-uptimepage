@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
@@ -34,9 +35,10 @@ type targetAPI interface {
 }
 
 var (
-	_ resource.Resource                = (*targetResource)(nil)
-	_ resource.ResourceWithConfigure   = (*targetResource)(nil)
-	_ resource.ResourceWithImportState = (*targetResource)(nil)
+	_ resource.Resource                   = (*targetResource)(nil)
+	_ resource.ResourceWithConfigure      = (*targetResource)(nil)
+	_ resource.ResourceWithImportState    = (*targetResource)(nil)
+	_ resource.ResourceWithValidateConfig = (*targetResource)(nil)
 )
 
 type targetResource struct {
@@ -129,8 +131,25 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"check": schema.SingleNestedAttribute{
 				Required:    true,
-				Description: "Check definition.",
-				Attributes:  httpCheckAttributes(),
+				Description: "Check definition. Set `type` and the matching nested block.",
+				Attributes: map[string]schema.Attribute{
+					"type": schema.StringAttribute{
+						Required:    true,
+						Description: "Check type: http, tcp, tls_cert, domain_expiry, dns.",
+						Validators: []validator.String{stringvalidator.OneOf(
+							client.CheckTypeHTTP, client.CheckTypeTCP, client.CheckTypeTLSCert,
+							client.CheckTypeDomainExpiry, client.CheckTypeDNS)},
+					},
+					"http": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "HTTP(S) check (when type = http).",
+						Attributes:  httpCheckAttributes(),
+					},
+					"tcp":           tcpCheckAttribute(),
+					"tls_cert":      tlsCertCheckAttribute(),
+					"domain_expiry": domainExpiryCheckAttribute(),
+					"dns":           dnsCheckAttribute(),
+				},
 			},
 		},
 	}
@@ -138,13 +157,6 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 
 func httpCheckAttributes() map[string]schema.Attribute {
 	return map[string]schema.Attribute{
-		"type": schema.StringAttribute{
-			Optional:    true,
-			Computed:    true,
-			Default:     stringdefault.StaticString(client.CheckTypeHTTP),
-			Description: "Check type. Currently only \"http\".",
-			Validators:  []validator.String{stringvalidator.OneOf(client.CheckTypeHTTP)},
-		},
 		"url": schema.StringAttribute{
 			Required:    true,
 			Description: "URL to request.",
@@ -245,6 +257,91 @@ func httpCheckAttributes() map[string]schema.Attribute {
 	}
 }
 
+func timeoutMsAttribute() schema.Attribute {
+	return schema.Int64Attribute{
+		Optional:    true,
+		Computed:    true,
+		Default:     int64default.StaticInt64(5000),
+		Description: "Timeout in milliseconds (100..60000).",
+		Validators:  []validator.Int64{int64validator.Between(100, 60000)},
+	}
+}
+
+func portAttribute() schema.Attribute {
+	return schema.Int64Attribute{
+		Required:    true,
+		Description: "Port (1..65535).",
+		Validators:  []validator.Int64{int64validator.Between(1, 65535)},
+	}
+}
+
+func expiryDaysAttribute(desc string) schema.Attribute {
+	return schema.Int64Attribute{
+		Required:    true,
+		Description: desc,
+		Validators:  []validator.Int64{int64validator.Between(0, 36500)},
+	}
+}
+
+func tcpCheckAttribute() schema.Attribute {
+	return schema.SingleNestedAttribute{
+		Optional:    true,
+		Description: "TCP connect check (when type = tcp).",
+		Attributes: map[string]schema.Attribute{
+			"host":       schema.StringAttribute{Required: true},
+			"port":       portAttribute(),
+			"timeout_ms": timeoutMsAttribute(),
+		},
+	}
+}
+
+func tlsCertCheckAttribute() schema.Attribute {
+	return schema.SingleNestedAttribute{
+		Optional:    true,
+		Description: "TLS certificate expiry check (when type = tls_cert).",
+		Attributes: map[string]schema.Attribute{
+			"host":          schema.StringAttribute{Required: true},
+			"port":          portAttribute(),
+			"server_name":   schema.StringAttribute{Optional: true, Description: "SNI to send if different from host."},
+			"warn_days":     expiryDaysAttribute("Warn when the cert expires within this many days."),
+			"critical_days": expiryDaysAttribute("Fail when the cert expires within this many days."),
+			"timeout_ms":    timeoutMsAttribute(),
+		},
+	}
+}
+
+func domainExpiryCheckAttribute() schema.Attribute {
+	return schema.SingleNestedAttribute{
+		Optional:    true,
+		Description: "Domain registration expiry check (when type = domain_expiry).",
+		Attributes: map[string]schema.Attribute{
+			"domain":        schema.StringAttribute{Required: true},
+			"warn_days":     expiryDaysAttribute("Warn when the domain expires within this many days."),
+			"critical_days": expiryDaysAttribute("Fail when the domain expires within this many days."),
+			"timeout_ms":    timeoutMsAttribute(),
+		},
+	}
+}
+
+func dnsCheckAttribute() schema.Attribute {
+	return schema.SingleNestedAttribute{
+		Optional:    true,
+		Description: "DNS resolution check (when type = dns).",
+		Attributes: map[string]schema.Attribute{
+			"domain": schema.StringAttribute{Required: true, Description: "Name to resolve (FQDN)."},
+			"record_type": schema.StringAttribute{
+				Required:    true,
+				Description: "DNS record type.",
+				Validators: []validator.String{stringvalidator.OneOf(
+					"A", "AAAA", "CNAME", "MX", "NS", "TXT", "SOA", "PTR", "CAA", "SRV")},
+			},
+			"resolver":          schema.StringAttribute{Optional: true, Description: "Custom resolver as ip or ip:port."},
+			"expected_contains": schema.StringAttribute{Optional: true, Description: "Substring that must appear in an answer."},
+			"timeout_ms":        timeoutMsAttribute(),
+		},
+	}
+}
+
 func (r *targetResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan targetModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -329,4 +426,33 @@ func (r *targetResource) Delete(ctx context.Context, req resource.DeleteRequest,
 
 func (r *targetResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// ValidateConfig enforces that exactly the nested block matching check.type is
+// set, surfaced at plan time rather than as an apply-time API error.
+func (r *targetResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var cfg targetModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
+	// Null/unknown type: let the framework's Required validator own that error.
+	if resp.Diagnostics.HasError() || cfg.Check.Type.IsUnknown() || cfg.Check.Type.IsNull() {
+		return
+	}
+	kind := cfg.Check.Type.ValueString()
+	present := map[string]bool{
+		client.CheckTypeHTTP:         cfg.Check.HTTP != nil,
+		client.CheckTypeTCP:          cfg.Check.TCP != nil,
+		client.CheckTypeTLSCert:      cfg.Check.TLSCert != nil,
+		client.CheckTypeDomainExpiry: cfg.Check.DomainExpiry != nil,
+		client.CheckTypeDNS:          cfg.Check.DNS != nil,
+	}
+	if kind != "" && !present[kind] {
+		resp.Diagnostics.AddAttributeError(path.Root("check").AtName(kind),
+			"Missing check block", fmt.Sprintf("type = %q requires the %q block.", kind, kind))
+	}
+	for k, set := range present {
+		if set && k != kind {
+			resp.Diagnostics.AddAttributeError(path.Root("check").AtName(k),
+				"Unexpected check block", fmt.Sprintf("The %q block is set but type = %q.", k, kind))
+		}
+	}
 }

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -32,8 +33,18 @@ type alertModel struct {
 	NotifyRecovery types.Bool   `tfsdk:"notify_recovery"`
 }
 
+// checkModel is the discriminated check block: Type names the active variant
+// and exactly one of the per-type pointers is set.
 type checkModel struct {
-	Type                 types.String        `tfsdk:"type"`
+	Type         types.String       `tfsdk:"type"`
+	HTTP         *httpCheckModel    `tfsdk:"http"`
+	TCP          *tcpCheckModel     `tfsdk:"tcp"`
+	TLSCert      *tlsCertCheckModel `tfsdk:"tls_cert"`
+	DomainExpiry *domainExpiryModel `tfsdk:"domain_expiry"`
+	DNS          *dnsCheckModel     `tfsdk:"dns"`
+}
+
+type httpCheckModel struct {
 	URL                  types.String        `tfsdk:"url"`
 	Method               types.String        `tfsdk:"method"`
 	TimeoutMs            types.Int64         `tfsdk:"timeout_ms"`
@@ -46,6 +57,36 @@ type checkModel struct {
 	VerifyTLS            types.Bool          `tfsdk:"verify_tls"`
 	BasicAuth            *basicAuthModel     `tfsdk:"basic_auth"`
 	BearerToken          types.String        `tfsdk:"bearer_token"`
+}
+
+type tcpCheckModel struct {
+	Host      types.String `tfsdk:"host"`
+	Port      types.Int64  `tfsdk:"port"`
+	TimeoutMs types.Int64  `tfsdk:"timeout_ms"`
+}
+
+type tlsCertCheckModel struct {
+	Host         types.String `tfsdk:"host"`
+	Port         types.Int64  `tfsdk:"port"`
+	ServerName   types.String `tfsdk:"server_name"`
+	WarnDays     types.Int64  `tfsdk:"warn_days"`
+	CriticalDays types.Int64  `tfsdk:"critical_days"`
+	TimeoutMs    types.Int64  `tfsdk:"timeout_ms"`
+}
+
+type domainExpiryModel struct {
+	Domain       types.String `tfsdk:"domain"`
+	WarnDays     types.Int64  `tfsdk:"warn_days"`
+	CriticalDays types.Int64  `tfsdk:"critical_days"`
+	TimeoutMs    types.Int64  `tfsdk:"timeout_ms"`
+}
+
+type dnsCheckModel struct {
+	Domain           types.String `tfsdk:"domain"`
+	RecordType       types.String `tfsdk:"record_type"`
+	Resolver         types.String `tfsdk:"resolver"`
+	ExpectedContains types.String `tfsdk:"expected_contains"`
+	TimeoutMs        types.Int64  `tfsdk:"timeout_ms"`
 }
 
 type expectedStatusModel struct {
@@ -128,27 +169,88 @@ func (m targetModel) alerts() []client.AlertBinding {
 
 func (c checkModel) toWire(ctx context.Context) (client.CheckSpec, diag.Diagnostics) {
 	var diags diag.Diagnostics
+	kind := c.Type.ValueString()
+	out := client.CheckSpec{Type: kind}
 
-	es, esd := c.ExpectedStatus.toWire(ctx)
-	diags.Append(esd...)
+	switch kind {
+	case client.CheckTypeHTTP:
+		if c.HTTP == nil {
+			return out, missingBlock(kind)
+		}
+		out.HTTP, diags = c.HTTP.toWire(ctx)
+	case client.CheckTypeTCP:
+		if c.TCP == nil {
+			return out, missingBlock(kind)
+		}
+		out.TCP = &client.TCPCheck{
+			Host:    c.TCP.Host.ValueString(),
+			Port:    uint16(c.TCP.Port.ValueInt64()),
+			Timeout: uint64(c.TCP.TimeoutMs.ValueInt64()),
+		}
+	case client.CheckTypeTLSCert:
+		if c.TLSCert == nil {
+			return out, missingBlock(kind)
+		}
+		out.TLSCert = &client.TLSCertCheck{
+			Host:         c.TLSCert.Host.ValueString(),
+			Port:         uint16(c.TLSCert.Port.ValueInt64()),
+			ServerName:   optString(c.TLSCert.ServerName),
+			WarnDays:     uint32(c.TLSCert.WarnDays.ValueInt64()),
+			CriticalDays: uint32(c.TLSCert.CriticalDays.ValueInt64()),
+			Timeout:      uint64(c.TLSCert.TimeoutMs.ValueInt64()),
+		}
+	case client.CheckTypeDomainExpiry:
+		if c.DomainExpiry == nil {
+			return out, missingBlock(kind)
+		}
+		out.DomainExpiry = &client.DomainExpiryCheck{
+			Domain:       c.DomainExpiry.Domain.ValueString(),
+			WarnDays:     uint32(c.DomainExpiry.WarnDays.ValueInt64()),
+			CriticalDays: uint32(c.DomainExpiry.CriticalDays.ValueInt64()),
+			Timeout:      uint64(c.DomainExpiry.TimeoutMs.ValueInt64()),
+		}
+	case client.CheckTypeDNS:
+		if c.DNS == nil {
+			return out, missingBlock(kind)
+		}
+		out.DNS = &client.DNSCheck{
+			Domain:           c.DNS.Domain.ValueString(),
+			RecordType:       c.DNS.RecordType.ValueString(),
+			Resolver:         optString(c.DNS.Resolver),
+			ExpectedContains: optString(c.DNS.ExpectedContains),
+			Timeout:          uint64(c.DNS.TimeoutMs.ValueInt64()),
+		}
+	default:
+		diags.AddError("Invalid check", fmt.Sprintf("unsupported check type %q", kind))
+	}
+	return out, diags
+}
 
-	h := &client.HTTPCheck{
-		URL:                  c.URL.ValueString(),
-		Method:               c.Method.ValueString(),
-		Timeout:              uint64(c.TimeoutMs.ValueInt64()),
-		FollowRedirects:      c.FollowRedirects.ValueBool(),
-		MaxRedirects:         uint8(c.MaxRedirects.ValueInt64()),
+func (h httpCheckModel) toWire(ctx context.Context) (*client.HTTPCheck, diag.Diagnostics) {
+	es, diags := h.ExpectedStatus.toWire(ctx)
+	out := &client.HTTPCheck{
+		URL:                  h.URL.ValueString(),
+		Method:               h.Method.ValueString(),
+		Timeout:              uint64(h.TimeoutMs.ValueInt64()),
+		FollowRedirects:      h.FollowRedirects.ValueBool(),
+		MaxRedirects:         uint8(h.MaxRedirects.ValueInt64()),
 		ExpectedStatus:       es,
-		ExpectedBodyContains: optString(c.ExpectedBodyContains),
-		Headers:              mapToStrings(ctx, c.Headers, &diags),
-		Body:                 optString(c.Body),
-		VerifyTLS:            c.VerifyTLS.ValueBool(),
-		BearerToken:          optString(c.BearerToken),
+		ExpectedBodyContains: optString(h.ExpectedBodyContains),
+		Headers:              mapToStrings(ctx, h.Headers, &diags),
+		Body:                 optString(h.Body),
+		VerifyTLS:            h.VerifyTLS.ValueBool(),
+		BearerToken:          optString(h.BearerToken),
 	}
-	if c.BasicAuth != nil {
-		h.BasicAuth = &[2]string{c.BasicAuth.Username.ValueString(), c.BasicAuth.Password.ValueString()}
+	if h.BasicAuth != nil {
+		out.BasicAuth = &[2]string{h.BasicAuth.Username.ValueString(), h.BasicAuth.Password.ValueString()}
 	}
-	return client.CheckSpec{Type: client.CheckTypeHTTP, HTTP: h}, diags
+	return out, diags
+}
+
+func missingBlock(kind string) diag.Diagnostics {
+	var d diag.Diagnostics
+	d.AddError("Invalid check", fmt.Sprintf("type = %q requires the %q block.", kind, kind))
+	return d
 }
 
 func (e expectedStatusModel) toWire(ctx context.Context) (client.ExpectedStatus, diag.Diagnostics) {
@@ -230,20 +332,61 @@ func alertsToModel(in []client.AlertBinding) []alertModel {
 
 func checkToModel(ctx context.Context, prior checkModel, spec client.CheckSpec) (checkModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
-	if spec.HTTP == nil {
-		diags.AddError("Unsupported check type", "Only the http check type is currently supported.")
-		return checkModel{}, diags
-	}
-	h := spec.HTTP
+	out := checkModel{Type: types.StringValue(spec.Type)}
 
-	headers, d := types.MapValueFrom(ctx, types.StringType, h.Headers)
-	diags.Append(d...)
+	switch {
+	case spec.HTTP != nil:
+		out.HTTP, diags = httpToModel(ctx, prior.HTTP, spec.HTTP)
+	case spec.TCP != nil:
+		out.TCP = &tcpCheckModel{
+			Host:      types.StringValue(spec.TCP.Host),
+			Port:      types.Int64Value(int64(spec.TCP.Port)),
+			TimeoutMs: types.Int64Value(int64(spec.TCP.Timeout)),
+		}
+	case spec.TLSCert != nil:
+		out.TLSCert = &tlsCertCheckModel{
+			Host:         types.StringValue(spec.TLSCert.Host),
+			Port:         types.Int64Value(int64(spec.TLSCert.Port)),
+			ServerName:   fromOptString(spec.TLSCert.ServerName),
+			WarnDays:     types.Int64Value(int64(spec.TLSCert.WarnDays)),
+			CriticalDays: types.Int64Value(int64(spec.TLSCert.CriticalDays)),
+			TimeoutMs:    types.Int64Value(int64(spec.TLSCert.Timeout)),
+		}
+	case spec.DomainExpiry != nil:
+		out.DomainExpiry = &domainExpiryModel{
+			Domain:       types.StringValue(spec.DomainExpiry.Domain),
+			WarnDays:     types.Int64Value(int64(spec.DomainExpiry.WarnDays)),
+			CriticalDays: types.Int64Value(int64(spec.DomainExpiry.CriticalDays)),
+			TimeoutMs:    types.Int64Value(int64(spec.DomainExpiry.Timeout)),
+		}
+	case spec.DNS != nil:
+		out.DNS = &dnsCheckModel{
+			Domain:           types.StringValue(spec.DNS.Domain),
+			RecordType:       types.StringValue(spec.DNS.RecordType),
+			Resolver:         fromOptString(spec.DNS.Resolver),
+			ExpectedContains: fromOptString(spec.DNS.ExpectedContains),
+			TimeoutMs:        types.Int64Value(int64(spec.DNS.Timeout)),
+		}
+	default:
+		diags.AddError("Unsupported check type", fmt.Sprintf("check type %q has no payload", spec.Type))
+	}
+	return out, diags
+}
+
+func httpToModel(ctx context.Context, prior *httpCheckModel, h *client.HTTPCheck) (*httpCheckModel, diag.Diagnostics) {
+	headers, diags := types.MapValueFrom(ctx, types.StringType, h.Headers)
 
 	es, esd := expectedStatusToModel(ctx, h.ExpectedStatus)
 	diags.Append(esd...)
 
-	out := checkModel{
-		Type:                 types.StringValue(spec.Type),
+	var priorBasic *basicAuthModel
+	priorBearer := types.StringNull()
+	if prior != nil {
+		priorBasic = prior.BasicAuth
+		priorBearer = prior.BearerToken
+	}
+
+	return &httpCheckModel{
 		URL:                  types.StringValue(h.URL),
 		Method:               types.StringValue(h.Method),
 		TimeoutMs:            types.Int64Value(int64(h.Timeout)),
@@ -255,10 +398,9 @@ func checkToModel(ctx context.Context, prior checkModel, spec client.CheckSpec) 
 		Body:                 fromOptString(h.Body),
 		VerifyTLS:            types.BoolValue(h.VerifyTLS),
 		// Secrets: the API redacts these on read, so trust prior state.
-		BasicAuth:   keepBasicAuth(prior.BasicAuth, h.BasicAuth),
-		BearerToken: keepSecret(prior.BearerToken, h.BearerToken),
-	}
-	return out, diags
+		BasicAuth:   keepBasicAuth(priorBasic, h.BasicAuth),
+		BearerToken: keepSecret(priorBearer, h.BearerToken),
+	}, diags
 }
 
 func expectedStatusToModel(ctx context.Context, e client.ExpectedStatus) (expectedStatusModel, diag.Diagnostics) {

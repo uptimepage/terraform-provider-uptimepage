@@ -70,6 +70,38 @@ func TestNewTarget_EmptyCollectionsNeverNull(t *testing.T) {
 	}
 }
 
+func TestCheckSpec_VariantsRoundTrip(t *testing.T) {
+	resolver := "1.1.1.1"
+	cases := map[string]CheckSpec{
+		"tcp":           {Type: CheckTypeTCP, TCP: &TCPCheck{Host: "db", Port: 5432, Timeout: 3000}},
+		"tls_cert":      {Type: CheckTypeTLSCert, TLSCert: &TLSCertCheck{Host: "x", Port: 443, WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
+		"domain_expiry": {Type: CheckTypeDomainExpiry, DomainExpiry: &DomainExpiryCheck{Domain: "x.com", WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
+		"dns":           {Type: CheckTypeDNS, DNS: &DNSCheck{Domain: "x.com", RecordType: "A", Resolver: &resolver, Timeout: 5000}},
+	}
+	for name, spec := range cases {
+		t.Run(name, func(t *testing.T) {
+			raw, err := json.Marshal(spec)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var m map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &m); err != nil {
+				t.Fatalf("to map: %v", err)
+			}
+			if string(m["type"]) != `"`+name+`"` {
+				t.Errorf("type = %s, want %q", m["type"], name)
+			}
+			var back CheckSpec
+			if err := json.Unmarshal(raw, &back); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if back.Type != spec.Type {
+				t.Errorf("type round-trip = %q, want %q", back.Type, spec.Type)
+			}
+		})
+	}
+}
+
 // TestCheckSpec_HTTPInternallyTagged pins that "type" is flattened alongside the
 // http fields (internally tagged), not nested.
 func TestCheckSpec_HTTPInternallyTagged(t *testing.T) {

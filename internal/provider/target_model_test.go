@@ -16,10 +16,10 @@ func strptr(s string) *string { return &s }
 // prior (real) state so there is no perpetual diff.
 func TestCheckToModel_RedactionSuppressed(t *testing.T) {
 	ctx := context.Background()
-	prior := checkModel{
+	prior := checkModel{Type: types.StringValue(client.CheckTypeHTTP), HTTP: &httpCheckModel{
 		BasicAuth:   &basicAuthModel{Username: types.StringValue("user"), Password: types.StringValue("pass")},
 		BearerToken: types.StringValue("real-token"),
-	}
+	}}
 	spec := client.CheckSpec{Type: client.CheckTypeHTTP, HTTP: &client.HTTPCheck{
 		URL:            "https://example.com",
 		Method:         "GET",
@@ -34,11 +34,14 @@ func TestCheckToModel_RedactionSuppressed(t *testing.T) {
 	if d.HasError() {
 		t.Fatalf("diags: %v", d)
 	}
-	if got.BasicAuth == nil || got.BasicAuth.Username.ValueString() != "user" || got.BasicAuth.Password.ValueString() != "pass" {
-		t.Errorf("basic_auth not preserved from prior: %+v", got.BasicAuth)
+	if got.HTTP == nil {
+		t.Fatal("http model nil")
 	}
-	if got.BearerToken.ValueString() != "real-token" {
-		t.Errorf("bearer_token not preserved: %q", got.BearerToken.ValueString())
+	if got.HTTP.BasicAuth == nil || got.HTTP.BasicAuth.Username.ValueString() != "user" || got.HTTP.BasicAuth.Password.ValueString() != "pass" {
+		t.Errorf("basic_auth not preserved from prior: %+v", got.HTTP.BasicAuth)
+	}
+	if got.HTTP.BearerToken.ValueString() != "real-token" {
+		t.Errorf("bearer_token not preserved: %q", got.HTTP.BearerToken.ValueString())
 	}
 }
 
@@ -46,10 +49,10 @@ func TestCheckToModel_RedactionSuppressed(t *testing.T) {
 // absent (not redacted), the model should reflect the cleared value.
 func TestCheckToModel_ClearedSecretsReflected(t *testing.T) {
 	ctx := context.Background()
-	prior := checkModel{
+	prior := checkModel{Type: types.StringValue(client.CheckTypeHTTP), HTTP: &httpCheckModel{
 		BasicAuth:   &basicAuthModel{Username: types.StringValue("user"), Password: types.StringValue("pass")},
 		BearerToken: types.StringValue("real-token"),
-	}
+	}}
 	spec := client.CheckSpec{Type: client.CheckTypeHTTP, HTTP: &client.HTTPCheck{
 		URL: "https://example.com", Method: "GET", Timeout: 5000,
 		ExpectedStatus: client.ExpectedStatus{Kind: client.StatusKindExact, Exact: 200},
@@ -62,11 +65,14 @@ func TestCheckToModel_ClearedSecretsReflected(t *testing.T) {
 	if d.HasError() {
 		t.Fatalf("diags: %v", d)
 	}
-	if got.BasicAuth != nil {
-		t.Errorf("basic_auth should be nil when API clears it, got %+v", got.BasicAuth)
+	if got.HTTP == nil {
+		t.Fatal("http model nil")
 	}
-	if !got.BearerToken.IsNull() {
-		t.Errorf("bearer_token should be null when API clears it, got %q", got.BearerToken.ValueString())
+	if got.HTTP.BasicAuth != nil {
+		t.Errorf("basic_auth should be nil when API clears it, got %+v", got.HTTP.BasicAuth)
+	}
+	if !got.HTTP.BearerToken.IsNull() {
+		t.Errorf("bearer_token should be null when API clears it, got %q", got.HTTP.BearerToken.ValueString())
 	}
 }
 
@@ -145,15 +151,17 @@ func TestToNew_MapsCoreFields(t *testing.T) {
 		PublicStatus: types.BoolValue(false),
 		GroupName:    types.StringValue("group"),
 		Check: checkModel{
-			Type:           types.StringValue(client.CheckTypeHTTP),
-			URL:            types.StringValue("https://example.com"),
-			Method:         types.StringValue("GET"),
-			TimeoutMs:      types.Int64Value(5000),
-			MaxRedirects:   types.Int64Value(5),
-			ExpectedStatus: expectedStatusModel{Kind: types.StringValue(client.StatusKindExact), Exact: types.Int64Value(200), OneOf: types.ListNull(types.Int64Type)},
-			Headers:        headers,
-			VerifyTLS:      types.BoolValue(true),
-			BearerToken:    types.StringNull(),
+			Type: types.StringValue(client.CheckTypeHTTP),
+			HTTP: &httpCheckModel{
+				URL:            types.StringValue("https://example.com"),
+				Method:         types.StringValue("GET"),
+				TimeoutMs:      types.Int64Value(5000),
+				MaxRedirects:   types.Int64Value(5),
+				ExpectedStatus: expectedStatusModel{Kind: types.StringValue(client.StatusKindExact), Exact: types.Int64Value(200), OneOf: types.ListNull(types.Int64Type)},
+				Headers:        headers,
+				VerifyTLS:      types.BoolValue(true),
+				BearerToken:    types.StringNull(),
+			},
 		},
 	}
 	out, d := m.toNew(ctx)
@@ -168,5 +176,46 @@ func TestToNew_MapsCoreFields(t *testing.T) {
 	}
 	if out.Check.HTTP == nil || out.Check.HTTP.Headers["X-A"] != "1" {
 		t.Errorf("headers not mapped: %+v", out.Check.HTTP)
+	}
+}
+
+func TestCheckToModel_TCPVariant(t *testing.T) {
+	ctx := context.Background()
+	spec := client.CheckSpec{Type: client.CheckTypeTCP, TCP: &client.TCPCheck{Host: "db", Port: 5432, Timeout: 3000}}
+	got, d := checkToModel(ctx, checkModel{}, spec)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if got.TCP == nil || got.TCP.Host.ValueString() != "db" || got.TCP.Port.ValueInt64() != 5432 {
+		t.Errorf("tcp not mapped: %+v", got.TCP)
+	}
+	if got.HTTP != nil {
+		t.Error("http should be nil for a tcp check")
+	}
+}
+
+func TestCheckToWire_DNS(t *testing.T) {
+	ctx := context.Background()
+	c := checkModel{Type: types.StringValue(client.CheckTypeDNS), DNS: &dnsCheckModel{
+		Domain:     types.StringValue("x.com"),
+		RecordType: types.StringValue("A"),
+		Resolver:   types.StringValue("1.1.1.1"),
+		TimeoutMs:  types.Int64Value(5000),
+	}}
+	out, d := c.toWire(ctx)
+	if d.HasError() {
+		t.Fatalf("toWire: %v", d)
+	}
+	if out.DNS == nil || out.DNS.RecordType != "A" || out.DNS.Resolver == nil || *out.DNS.Resolver != "1.1.1.1" {
+		t.Errorf("dns wire wrong: %+v", out.DNS)
+	}
+}
+
+func TestCheckToWire_MissingBlockErrors(t *testing.T) {
+	ctx := context.Background()
+	c := checkModel{Type: types.StringValue(client.CheckTypeTCP)} // no tcp block
+	_, d := c.toWire(ctx)
+	if !d.HasError() {
+		t.Error("expected error when the block for the type is missing")
 	}
 }

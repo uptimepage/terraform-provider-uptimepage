@@ -79,32 +79,108 @@ type HTTPCheck struct {
 	BearerToken          *string           `json:"bearer_token"` // "***" on read if set
 }
 
-// CheckSpec is the internally-tagged union over check kinds (discriminator
-// "type", variant fields flattened alongside it). Only the http variant is
-// wired today; other kinds are added later.
-type CheckSpec struct {
-	Type string     `json:"-"`
-	HTTP *HTTPCheck `json:"-"`
+// TCPCheck is the tcp variant: a connect probe to host:port.
+type TCPCheck struct {
+	Host    string `json:"host"`
+	Port    uint16 `json:"port"`
+	Timeout uint64 `json:"timeout"` // milliseconds
 }
 
-const CheckTypeHTTP = "http"
+// TLSCertCheck verifies a certificate and warns/fails on imminent expiry.
+type TLSCertCheck struct {
+	Host         string  `json:"host"`
+	Port         uint16  `json:"port"`
+	ServerName   *string `json:"server_name"`
+	WarnDays     uint32  `json:"warn_days"`
+	CriticalDays uint32  `json:"critical_days"`
+	Timeout      uint64  `json:"timeout"` // milliseconds
+}
+
+// DomainExpiryCheck warns/fails as a domain registration nears expiry.
+type DomainExpiryCheck struct {
+	Domain       string `json:"domain"`
+	WarnDays     uint32 `json:"warn_days"`
+	CriticalDays uint32 `json:"critical_days"`
+	Timeout      uint64 `json:"timeout"` // milliseconds
+}
+
+// DNSCheck resolves a name and optionally asserts a substring in the answers.
+type DNSCheck struct {
+	Domain           string  `json:"domain"`
+	RecordType       string  `json:"record_type"` // A, AAAA, CNAME, MX, NS, TXT, SOA, PTR, CAA, SRV
+	Resolver         *string `json:"resolver"`
+	ExpectedContains *string `json:"expected_contains"`
+	Timeout          uint64  `json:"timeout"` // milliseconds
+}
+
+// CheckSpec is the internally-tagged union over check kinds (discriminator
+// "type", variant fields flattened alongside it). Exactly one variant pointer
+// is set, matching Type.
+type CheckSpec struct {
+	Type         string             `json:"-"`
+	HTTP         *HTTPCheck         `json:"-"`
+	TCP          *TCPCheck          `json:"-"`
+	TLSCert      *TLSCertCheck      `json:"-"`
+	DomainExpiry *DomainExpiryCheck `json:"-"`
+	DNS          *DNSCheck          `json:"-"`
+}
+
+const (
+	CheckTypeHTTP         = "http"
+	CheckTypeTCP          = "tcp"
+	CheckTypeTLSCert      = "tls_cert"
+	CheckTypeDomainExpiry = "domain_expiry"
+	CheckTypeDNS          = "dns"
+)
 
 func (c CheckSpec) MarshalJSON() ([]byte, error) {
 	switch c.Type {
 	case CheckTypeHTTP:
 		if c.HTTP == nil {
-			return nil, fmt.Errorf("check type %q with nil payload", c.Type)
+			return nil, errNilPayload(c.Type)
 		}
 		h := *c.HTTP
 		if h.Headers == nil {
 			h.Headers = map[string]string{} // server requires the key; rejects null
 		}
-		// Embedding flattens HTTPCheck's fields alongside the discriminator
+		// Embedding flattens the variant fields alongside the discriminator
 		// (internally-tagged encoding) in a single pass, deterministic order.
 		return json.Marshal(struct {
 			Type string `json:"type"`
 			HTTPCheck
 		}{c.Type, h})
+	case CheckTypeTCP:
+		if c.TCP == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			TCPCheck
+		}{c.Type, *c.TCP})
+	case CheckTypeTLSCert:
+		if c.TLSCert == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			TLSCertCheck
+		}{c.Type, *c.TLSCert})
+	case CheckTypeDomainExpiry:
+		if c.DomainExpiry == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			DomainExpiryCheck
+		}{c.Type, *c.DomainExpiry})
+	case CheckTypeDNS:
+		if c.DNS == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			DNSCheck
+		}{c.Type, *c.DNS})
 	case "":
 		return nil, fmt.Errorf("check has no type")
 	default:
@@ -112,8 +188,12 @@ func (c CheckSpec) MarshalJSON() ([]byte, error) {
 	}
 }
 
+func errNilPayload(t string) error {
+	return fmt.Errorf("check type %q with nil payload", t)
+}
+
 func (c *CheckSpec) UnmarshalJSON(data []byte) error {
-	c.HTTP = nil // clear any stale variant when the destination is reused
+	*c = CheckSpec{} // clear any stale variant when the destination is reused
 	var probe struct {
 		Type string `json:"type"`
 	}
@@ -123,12 +203,20 @@ func (c *CheckSpec) UnmarshalJSON(data []byte) error {
 	c.Type = probe.Type
 	switch probe.Type {
 	case CheckTypeHTTP:
-		var h HTTPCheck
-		if err := json.Unmarshal(data, &h); err != nil {
-			return err
-		}
-		c.HTTP = &h
-		return nil
+		c.HTTP = new(HTTPCheck)
+		return json.Unmarshal(data, c.HTTP)
+	case CheckTypeTCP:
+		c.TCP = new(TCPCheck)
+		return json.Unmarshal(data, c.TCP)
+	case CheckTypeTLSCert:
+		c.TLSCert = new(TLSCertCheck)
+		return json.Unmarshal(data, c.TLSCert)
+	case CheckTypeDomainExpiry:
+		c.DomainExpiry = new(DomainExpiryCheck)
+		return json.Unmarshal(data, c.DomainExpiry)
+	case CheckTypeDNS:
+		c.DNS = new(DNSCheck)
+		return json.Unmarshal(data, c.DNS)
 	default:
 		return fmt.Errorf("unsupported check type %q", probe.Type)
 	}
