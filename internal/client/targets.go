@@ -43,6 +43,13 @@ func (c *Client) GetTarget(ctx context.Context, id string) (*Target, error) {
 }
 
 func (c *Client) UpdateTarget(ctx context.Context, id string, in TargetUpdate) (*Target, error) {
+	// Non-nil so an empty plan clears rather than a null being read as "keep".
+	if in.Tags == nil {
+		in.Tags = []string{}
+	}
+	if in.Alerts == nil {
+		in.Alerts = []AlertBinding{}
+	}
 	var out Target
 	if err := c.do(ctx, http.MethodPatch, targetsPath+"/"+url.PathEscape(id), in, &out); err != nil {
 		return nil, err

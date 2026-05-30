@@ -37,18 +37,22 @@ type NewTarget struct {
 	PublicStatus bool           `json:"public_status"`
 }
 
-// TargetUpdate is the PATCH /targets/{id} body. All fields optional; only the
-// non-nil ones are sent. The double-option clear semantics for group_name /
-// owner_user_id (present-null = clear vs omitted = keep) are applied by the
-// provider mapper; this struct is the minimal transport.
+// TargetUpdate is the PATCH /targets/{id} body. Terraform always holds the full
+// desired state, so every field is sent on every update — no partial-patch
+// bookkeeping. GroupName / OwnerUserID are pointers so a nil marshals to JSON
+// null, which clears the field server-side (present-null = clear); a value
+// sets it. Tags/Alerts must be non-nil (UpdateTarget normalizes) so an empty
+// slice clears rather than a null being misread as "keep".
 type TargetUpdate struct {
-	Name         *string         `json:"name,omitempty"`
-	Check        *CheckSpec      `json:"check,omitempty"`
-	Interval     *uint64         `json:"interval,omitempty"`
-	Enabled      *bool           `json:"enabled,omitempty"`
-	Tags         *[]string       `json:"tags,omitempty"`
-	Alerts       *[]AlertBinding `json:"alerts,omitempty"`
-	PublicStatus *bool           `json:"public_status,omitempty"`
+	Name         string         `json:"name"`
+	Check        CheckSpec      `json:"check"`
+	Interval     uint64         `json:"interval"`
+	Enabled      bool           `json:"enabled"`
+	Tags         []string       `json:"tags"`
+	Alerts       []AlertBinding `json:"alerts"`
+	GroupName    *string        `json:"group_name"`
+	OwnerUserID  *string        `json:"owner_user_id"`
+	PublicStatus bool           `json:"public_status"`
 }
 
 // AlertBinding ties a notification channel to a target's failure threshold.

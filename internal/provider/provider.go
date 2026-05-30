@@ -106,12 +106,15 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 }
 
 func (p *Provider) Resources(_ context.Context) []func() resource.Resource {
-	// Registered here as resources are added (uptimepage_target, ...).
-	return nil
+	return []func() resource.Resource{
+		newTargetResource,
+	}
 }
 
 func (p *Provider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		newTargetDataSource,
+	}
 }
 
 // resolveSettings applies precedence config > env per setting. Pure (env values
