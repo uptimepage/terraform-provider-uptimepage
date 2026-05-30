@@ -14,8 +14,9 @@ import (
 )
 
 // DefaultEndpoint is the public UptimePage API base, used when no endpoint is
-// configured.
-const DefaultEndpoint = "https://uptimepage.dev"
+// configured. The hosted service serves the API on the app host; the apex
+// (uptimepage.dev) is the marketing site and 404s /api/v1.
+const DefaultEndpoint = "https://app.uptimepage.dev"
 
 // Client is safe for concurrent use: it holds only immutable config plus an
 // *http.Client (itself concurrency-safe), so there is nothing to lock.

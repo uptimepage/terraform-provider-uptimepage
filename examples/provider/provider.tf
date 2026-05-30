@@ -7,9 +7,9 @@ terraform {
 }
 
 provider "uptimepage" {
-  # endpoint defaults to https://uptimepage.dev; point it at your app host
-  # (e.g. https://app.uptimepage.dev) for a hosted/self-managed instance.
-  endpoint = "https://app.uptimepage.dev"
+  # endpoint defaults to https://app.uptimepage.dev (the hosted service).
+  # Set it for a self-hosted instance, e.g. https://uptime.example.com.
+  # endpoint = "https://uptime.example.com"
 
   # token may also be supplied via UPTIMEPAGE_TOKEN
   token = var.uptimepage_token

@@ -14,8 +14,10 @@ terraform {
 }
 
 provider "uptimepage" {
-  # endpoint defaults to https://uptimepage.dev
+  # endpoint defaults to https://app.uptimepage.dev (the hosted service).
+  # Set it for a self-hosted instance, e.g. https://uptime.example.com.
   token = var.uptimepage_token # or set UPTIMEPAGE_TOKEN
+  org   = "your-org-slug"      # required for managed resources; or UPTIMEPAGE_ORG
 }
 
 resource "uptimepage_notification_channel" "slack" {
@@ -46,6 +48,8 @@ resource "uptimepage_target" "api" {
 ## Authentication
 
 The provider authenticates with an API token (`Authorization: Bearer sm_live_…`), created from the UptimePage **API tokens** page (requires a verified email). Supply it via the `token` provider attribute or the `UPTIMEPAGE_TOKEN` environment variable.
+
+API tokens are user-scoped, so every managed-resource request must also name an organization — set `org` (the org **slug**) on the provider, or the `UPTIMEPAGE_ORG` environment variable. It is sent as the `X-Uptimepage-Org` header; without it the API returns `400 ORG_REQUIRED`. Find your slug at `GET /api/v1/orgs` or in the dashboard URL.
 
 ## Resources & data sources
 

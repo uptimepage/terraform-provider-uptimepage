@@ -21,9 +21,9 @@ terraform {
 }
 
 provider "uptimepage" {
-  # endpoint defaults to https://uptimepage.dev; point it at your app host
-  # (e.g. https://app.uptimepage.dev) for a hosted/self-managed instance.
-  endpoint = "https://app.uptimepage.dev"
+  # endpoint defaults to https://app.uptimepage.dev (the hosted service).
+  # Set it for a self-hosted instance, e.g. https://uptime.example.com.
+  # endpoint = "https://uptime.example.com"
 
   # token may also be supplied via UPTIMEPAGE_TOKEN
   token = var.uptimepage_token
@@ -39,6 +39,6 @@ provider "uptimepage" {
 
 ### Optional
 
-- `endpoint` (String) Base URL of the UptimePage API. Defaults to https://uptimepage.dev. May also be set via the UPTIMEPAGE_ENDPOINT environment variable.
+- `endpoint` (String) Base URL of the UptimePage API. Defaults to https://app.uptimepage.dev. May also be set via the UPTIMEPAGE_ENDPOINT environment variable.
 - `org` (String) Organization slug to scope API-token requests to (sent as the X-Uptimepage-Org header). Required for token auth against managed resources. May also be set via the UPTIMEPAGE_ORG environment variable.
 - `token` (String, Sensitive) API token (Bearer). Create one from the UptimePage API tokens page. May also be set via the UPTIMEPAGE_TOKEN environment variable.
