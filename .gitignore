@@ -1,0 +1,32 @@
+# Local-only design docs — drive work from these, never ship them
+/spec/
+
+# Go build output
+/terraform-provider-uptimepage
+/dist/
+*.test
+*.out
+
+# Go workspace / vendor
+/vendor/
+go.work
+go.work.sum
+
+# Terraform local state from manual/example runs
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!example.tfvars
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Test artifacts
+coverage.txt
+profile.cov
