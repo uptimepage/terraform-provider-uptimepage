@@ -49,7 +49,7 @@ func (p *Provider) Metadata(_ context.Context, _ provider.MetadataRequest, resp 
 
 func (p *Provider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manage UptimePage monitors, notification channels, and status pages as code.",
+		Description: "Manage UptimePage monitors and notification channels as code.",
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
 				Optional:    true,

@@ -1,26 +1,100 @@
 # terraform-provider-uptimepage
 
-Terraform provider for [UptimePage](https://uptimepage.dev) — manage your monitors, notification channels, and status pages as code against the `/api/v1` REST API.
+Terraform provider for [UptimePage](https://uptimepage.dev) — manage your monitors and notification channels as code against the `/api/v1` REST API.
 
-> Status: early development. Phase 0 (API client transport) complete; resources land in subsequent phases.
+## Usage
 
-## Layout
+```hcl
+terraform {
+  required_providers {
+    uptimepage = {
+      source = "uptimepage/uptimepage"
+    }
+  }
+}
 
-- `internal/client` — UptimePage API transport. Plain Go, no Terraform deps. Unit-tested against `httptest`.
-- `internal/provider` — Terraform plugin-framework glue (provider, resources, data sources).
+provider "uptimepage" {
+  # endpoint defaults to https://uptimepage.dev
+  token = var.uptimepage_token # or set UPTIMEPAGE_TOKEN
+}
+
+resource "uptimepage_notification_channel" "slack" {
+  name = "ops slack"
+  config = {
+    type  = "slack"
+    slack = { webhook_url = var.slack_webhook_url }
+  }
+}
+
+resource "uptimepage_target" "api" {
+  name     = "api prod"
+  interval = 60
+  check = {
+    type = "http"
+    http = {
+      url             = "https://example.com/healthz"
+      expected_status = { kind = "exact", exact = 200 }
+    }
+  }
+  alerts = [{
+    channel_id     = uptimepage_notification_channel.slack.id
+    after_failures = 3
+  }]
+}
+```
+
+## Authentication
+
+The provider authenticates with an API token (`Authorization: Bearer sm_live_…`), created from the UptimePage **API tokens** page (requires a verified email). Supply it via the `token` provider attribute or the `UPTIMEPAGE_TOKEN` environment variable.
+
+## Resources & data sources
+
+| Name | Kind | Notes |
+|------|------|-------|
+| `uptimepage_target` | resource | Monitors. Check types: `http`, `tcp`, `tls_cert`, `domain_expiry`, `dns`. |
+| `uptimepage_notification_channel` | resource | `webhook`, `slack`, `telegram`. |
+| `uptimepage_target` | data source | Look up a target by id. |
+
+Full reference under [`docs/`](docs/), generated from the schema.
+
+## Write-only secrets
+
+Some fields are write-only: the API returns them redacted (`***`) on read, so the provider keeps the value from your configuration/state and **cannot detect out-of-band changes** to them. Rotating such a secret means changing it in your configuration. Affected fields:
+
+- `uptimepage_target` → `check.http.basic_auth`, `check.http.bearer_token`
+- `uptimepage_notification_channel` → `config.webhook.url`, `config.webhook.headers`, `config.slack.webhook_url`, `config.telegram.bot_token`
+
+On `terraform import`, these land empty — set them in configuration afterwards.
 
 ## Development
 
 ```sh
 make check   # gofmt + vet + build + unit tests
-make test
 ```
 
 Requires Go 1.26+.
 
-## Authentication
+Regenerate docs after a schema change:
 
-The provider authenticates with an API token (`Authorization: Bearer sm_live_…`), created from the UptimePage web UI (API tokens page; requires a verified email). Configure via the `token` provider attribute or the `UPTIMEPAGE_TOKEN` environment variable.
+```sh
+go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs generate --provider-name uptimepage
+```
+
+Acceptance tests hit a real API and are gated on a token:
+
+```sh
+TF_ACC=1 UPTIMEPAGE_TOKEN=sm_live_… go test ./internal/provider -run TestAcc -timeout 20m
+```
+
+## Releasing
+
+Tags matching `v*` trigger the `release` workflow, which builds signed archives with GoReleaser and publishes a GitHub release the Terraform Registry consumes. Requires the repository secrets `GPG_PRIVATE_KEY` and `PASSPHRASE`, and the corresponding public key registered with the Terraform Registry.
+
+## Compatibility
+
+| Provider | Terraform | Protocol |
+|----------|-----------|----------|
+| 0.x | >= 1.0 | 6 |
 
 ## License
 
