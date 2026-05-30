@@ -108,6 +108,7 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 func (p *Provider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		newTargetResource,
+		newChannelResource,
 	}
 }
 

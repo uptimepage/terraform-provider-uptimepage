@@ -5,10 +5,26 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/uptimepage/terraform-provider-uptimepage/internal/client"
 )
+
+// validateDiscriminatedBlock enforces that exactly the nested block named by
+// kind is set under base. Shared by the target check and the channel config.
+func validateDiscriminatedBlock(base path.Path, kind string, present map[string]bool, diags *diag.Diagnostics) {
+	if kind != "" && !present[kind] {
+		diags.AddAttributeError(base.AtName(kind), "Missing block",
+			fmt.Sprintf("type = %q requires the %q block.", kind, kind))
+	}
+	for k, set := range present {
+		if set && k != kind {
+			diags.AddAttributeError(base.AtName(k), "Unexpected block",
+				fmt.Sprintf("The %q block is set but type = %q.", k, kind))
+		}
+	}
+}
 
 // alertObjectType is the element type of the alerts list, reused by the schema
 // default and any list construction.

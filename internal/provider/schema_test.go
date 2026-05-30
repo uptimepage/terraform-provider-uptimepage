@@ -25,8 +25,10 @@ func TestProviderSchema_Valid(t *testing.T) {
 			t.Errorf("schema diagnostic: %s — %s", d.Summary, d.Detail)
 		}
 	}
-	if _, ok := resp.ResourceSchemas["uptimepage_target"]; !ok {
-		t.Error("uptimepage_target resource schema missing")
+	for _, name := range []string{"uptimepage_target", "uptimepage_notification_channel"} {
+		if _, ok := resp.ResourceSchemas[name]; !ok {
+			t.Errorf("%s resource schema missing", name)
+		}
 	}
 	if _, ok := resp.DataSourceSchemas["uptimepage_target"]; !ok {
 		t.Error("uptimepage_target data source schema missing")

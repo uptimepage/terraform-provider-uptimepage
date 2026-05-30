@@ -102,6 +102,36 @@ func TestCheckSpec_VariantsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestChannelConfig_VariantsRoundTrip(t *testing.T) {
+	cases := map[string]ChannelConfig{
+		"webhook":  {Type: ChannelTypeWebhook, Webhook: &WebhookConfig{URL: "https://x", Headers: map[string]string{"A": "b"}}},
+		"slack":    {Type: ChannelTypeSlack, Slack: &SlackConfig{WebhookURL: "https://hooks"}},
+		"telegram": {Type: ChannelTypeTelegram, Telegram: &TelegramConfig{BotToken: "123:abc", ChatID: "-100"}},
+	}
+	for name, cfg := range cases {
+		t.Run(name, func(t *testing.T) {
+			raw, err := json.Marshal(cfg)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var m map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &m); err != nil {
+				t.Fatalf("to map: %v", err)
+			}
+			if string(m["type"]) != `"`+name+`"` {
+				t.Errorf("type = %s, want %q", m["type"], name)
+			}
+			var back ChannelConfig
+			if err := json.Unmarshal(raw, &back); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if back.Type != cfg.Type {
+				t.Errorf("type round-trip = %q, want %q", back.Type, cfg.Type)
+			}
+		})
+	}
+}
+
 // TestCheckSpec_HTTPInternallyTagged pins that "type" is flattened alongside the
 // http fields (internally tagged), not nested.
 func TestCheckSpec_HTTPInternallyTagged(t *testing.T) {

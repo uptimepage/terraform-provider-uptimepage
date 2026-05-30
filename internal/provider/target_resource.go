@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
@@ -437,22 +436,11 @@ func (r *targetResource) ValidateConfig(ctx context.Context, req resource.Valida
 	if resp.Diagnostics.HasError() || cfg.Check.Type.IsUnknown() || cfg.Check.Type.IsNull() {
 		return
 	}
-	kind := cfg.Check.Type.ValueString()
-	present := map[string]bool{
+	validateDiscriminatedBlock(path.Root("check"), cfg.Check.Type.ValueString(), map[string]bool{
 		client.CheckTypeHTTP:         cfg.Check.HTTP != nil,
 		client.CheckTypeTCP:          cfg.Check.TCP != nil,
 		client.CheckTypeTLSCert:      cfg.Check.TLSCert != nil,
 		client.CheckTypeDomainExpiry: cfg.Check.DomainExpiry != nil,
 		client.CheckTypeDNS:          cfg.Check.DNS != nil,
-	}
-	if kind != "" && !present[kind] {
-		resp.Diagnostics.AddAttributeError(path.Root("check").AtName(kind),
-			"Missing check block", fmt.Sprintf("type = %q requires the %q block.", kind, kind))
-	}
-	for k, set := range present {
-		if set && k != kind {
-			resp.Diagnostics.AddAttributeError(path.Root("check").AtName(k),
-				"Unexpected check block", fmt.Sprintf("The %q block is set but type = %q.", k, kind))
-		}
-	}
+	}, &resp.Diagnostics)
 }
