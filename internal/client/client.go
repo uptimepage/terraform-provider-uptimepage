@@ -13,7 +13,9 @@ import (
 	"strings"
 )
 
-const defaultEndpoint = "https://uptimepage.dev"
+// DefaultEndpoint is the public UptimePage API base, used when no endpoint is
+// configured.
+const DefaultEndpoint = "https://uptimepage.dev"
 
 // Client is safe for concurrent use: it holds only immutable config plus an
 // *http.Client (itself concurrency-safe), so there is nothing to lock.
@@ -27,7 +29,7 @@ type Client struct {
 // nil httpClient falls back to http.DefaultClient.
 func New(endpoint, token string, httpClient *http.Client) *Client {
 	if endpoint == "" {
-		endpoint = defaultEndpoint
+		endpoint = DefaultEndpoint
 	}
 	if httpClient == nil {
 		httpClient = http.DefaultClient
