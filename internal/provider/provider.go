@@ -121,6 +121,8 @@ func (p *Provider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		newTargetResource,
 		newChannelResource,
+		newStatusPageResource,
+		newStatusPageComponentResource,
 	}
 }
 

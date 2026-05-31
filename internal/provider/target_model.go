@@ -15,16 +15,15 @@ const redactedSentinel = "***"
 
 // targetModel is the tfsdk view of an uptimepage_target.
 type targetModel struct {
-	ID           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	Interval     types.Int64  `tfsdk:"interval"`
-	Enabled      types.Bool   `tfsdk:"enabled"`
-	Tags         types.Set    `tfsdk:"tags"`
-	GroupName    types.String `tfsdk:"group_name"`
-	OwnerUserID  types.String `tfsdk:"owner_user_id"`
-	PublicStatus types.Bool   `tfsdk:"public_status"`
-	Alerts       []alertModel `tfsdk:"alerts"`
-	Check        checkModel   `tfsdk:"check"`
+	ID          types.String `tfsdk:"id"`
+	Name        types.String `tfsdk:"name"`
+	Interval    types.Int64  `tfsdk:"interval"`
+	Enabled     types.Bool   `tfsdk:"enabled"`
+	Tags        types.Set    `tfsdk:"tags"`
+	GroupName   types.String `tfsdk:"group_name"`
+	OwnerUserID types.String `tfsdk:"owner_user_id"`
+	Alerts      []alertModel `tfsdk:"alerts"`
+	Check       checkModel   `tfsdk:"check"`
 }
 
 type alertModel struct {
@@ -114,15 +113,14 @@ func (m targetModel) toNew(ctx context.Context) (client.NewTarget, diag.Diagnost
 	diags.Append(cd...)
 
 	out := client.NewTarget{
-		Name:         m.Name.ValueString(),
-		Check:        check,
-		Interval:     uint64(m.Interval.ValueInt64()),
-		Enabled:      m.Enabled.ValueBool(),
-		Tags:         m.tags(ctx, &diags),
-		Alerts:       m.alerts(),
-		GroupName:    optString(m.GroupName),
-		OwnerUserID:  optString(m.OwnerUserID),
-		PublicStatus: m.PublicStatus.ValueBool(),
+		Name:        m.Name.ValueString(),
+		Check:       check,
+		Interval:    uint64(m.Interval.ValueInt64()),
+		Enabled:     m.Enabled.ValueBool(),
+		Tags:        m.tags(ctx, &diags),
+		Alerts:      m.alerts(),
+		GroupName:   optString(m.GroupName),
+		OwnerUserID: optString(m.OwnerUserID),
 	}
 	return out, diags
 }
@@ -133,15 +131,14 @@ func (m targetModel) toUpdate(ctx context.Context) (client.TargetUpdate, diag.Di
 	diags.Append(cd...)
 
 	out := client.TargetUpdate{
-		Name:         m.Name.ValueString(),
-		Check:        check,
-		Interval:     uint64(m.Interval.ValueInt64()),
-		Enabled:      m.Enabled.ValueBool(),
-		Tags:         m.tags(ctx, &diags),
-		Alerts:       m.alerts(),
-		GroupName:    optString(m.GroupName),
-		OwnerUserID:  optString(m.OwnerUserID),
-		PublicStatus: m.PublicStatus.ValueBool(),
+		Name:        m.Name.ValueString(),
+		Check:       check,
+		Interval:    uint64(m.Interval.ValueInt64()),
+		Enabled:     m.Enabled.ValueBool(),
+		Tags:        m.tags(ctx, &diags),
+		Alerts:      m.alerts(),
+		GroupName:   optString(m.GroupName),
+		OwnerUserID: optString(m.OwnerUserID),
 	}
 	return out, diags
 }
@@ -299,15 +296,14 @@ func targetToModel(ctx context.Context, prior targetModel, t *client.Target) (ta
 	diags.Append(d...)
 
 	m := targetModel{
-		ID:           types.StringValue(t.ID),
-		Name:         types.StringValue(t.Name),
-		Interval:     types.Int64Value(int64(t.Interval)),
-		Enabled:      types.BoolValue(t.Enabled),
-		Tags:         tags,
-		GroupName:    fromOptString(t.GroupName),
-		OwnerUserID:  fromOptString(t.OwnerUserID),
-		PublicStatus: types.BoolValue(t.PublicStatus),
-		Alerts:       alertsToModel(t.Alerts),
+		ID:          types.StringValue(t.ID),
+		Name:        types.StringValue(t.Name),
+		Interval:    types.Int64Value(int64(t.Interval)),
+		Enabled:     types.BoolValue(t.Enabled),
+		Tags:        tags,
+		GroupName:   fromOptString(t.GroupName),
+		OwnerUserID: fromOptString(t.OwnerUserID),
+		Alerts:      alertsToModel(t.Alerts),
 	}
 
 	check, cd := checkToModel(ctx, prior.Check, t.Check)

@@ -42,7 +42,6 @@ func (d *targetDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 			"name":          dschema.StringAttribute{Computed: true},
 			"interval":      dschema.Int64Attribute{Computed: true},
 			"enabled":       dschema.BoolAttribute{Computed: true},
-			"public_status": dschema.BoolAttribute{Computed: true},
 			"group_name":    dschema.StringAttribute{Computed: true},
 			"owner_user_id": dschema.StringAttribute{Computed: true},
 			"tags": dschema.SetAttribute{
@@ -55,14 +54,13 @@ func (d *targetDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 
 // targetDataModel is the trimmed read-only view exposed by the data source.
 type targetDataModel struct {
-	ID           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	Interval     types.Int64  `tfsdk:"interval"`
-	Enabled      types.Bool   `tfsdk:"enabled"`
-	PublicStatus types.Bool   `tfsdk:"public_status"`
-	GroupName    types.String `tfsdk:"group_name"`
-	OwnerUserID  types.String `tfsdk:"owner_user_id"`
-	Tags         types.Set    `tfsdk:"tags"`
+	ID          types.String `tfsdk:"id"`
+	Name        types.String `tfsdk:"name"`
+	Interval    types.Int64  `tfsdk:"interval"`
+	Enabled     types.Bool   `tfsdk:"enabled"`
+	GroupName   types.String `tfsdk:"group_name"`
+	OwnerUserID types.String `tfsdk:"owner_user_id"`
+	Tags        types.Set    `tfsdk:"tags"`
 }
 
 func (d *targetDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -82,14 +80,13 @@ func (d *targetDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	resp.Diagnostics.Append(diags...)
 
 	out := targetDataModel{
-		ID:           types.StringValue(got.ID),
-		Name:         types.StringValue(got.Name),
-		Interval:     types.Int64Value(int64(got.Interval)),
-		Enabled:      types.BoolValue(got.Enabled),
-		PublicStatus: types.BoolValue(got.PublicStatus),
-		GroupName:    fromOptString(got.GroupName),
-		OwnerUserID:  fromOptString(got.OwnerUserID),
-		Tags:         tags,
+		ID:          types.StringValue(got.ID),
+		Name:        types.StringValue(got.Name),
+		Interval:    types.Int64Value(int64(got.Interval)),
+		Enabled:     types.BoolValue(got.Enabled),
+		GroupName:   fromOptString(got.GroupName),
+		OwnerUserID: fromOptString(got.OwnerUserID),
+		Tags:        tags,
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &out)...)
 }

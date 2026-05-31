@@ -25,7 +25,12 @@ func TestProviderSchema_Valid(t *testing.T) {
 			t.Errorf("schema diagnostic: %s — %s", d.Summary, d.Detail)
 		}
 	}
-	for _, name := range []string{"uptimepage_target", "uptimepage_notification_channel"} {
+	for _, name := range []string{
+		"uptimepage_target",
+		"uptimepage_notification_channel",
+		"uptimepage_status_page",
+		"uptimepage_status_page_component",
+	} {
 		if _, ok := resp.ResourceSchemas[name]; !ok {
 			t.Errorf("%s resource schema missing", name)
 		}

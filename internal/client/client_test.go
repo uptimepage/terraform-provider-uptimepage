@@ -47,7 +47,7 @@ func TestCreateTarget_SendsAuthAndDecodes(t *testing.T) {
 			t.Errorf("decoded name = %q", in.Name)
 		}
 		w.WriteHeader(http.StatusCreated)
-		_, _ = w.Write([]byte(`{"id":"01h7","name":"api prod","check":{"type":"http","url":"https://example.com/healthz","method":"GET","timeout":5000,"follow_redirects":false,"max_redirects":5,"expected_status":{"kind":"exact","value":200},"expected_body_contains":null,"headers":{},"body":null,"verify_tls":true,"basic_auth":null,"bearer_token":null},"interval":60,"enabled":true,"tags":["prod"],"alerts":[],"group_name":null,"owner_user_id":null,"public_status":false}`))
+		_, _ = w.Write([]byte(`{"id":"01h7","name":"api prod","check":{"type":"http","url":"https://example.com/healthz","method":"GET","timeout":5000,"follow_redirects":false,"max_redirects":5,"expected_status":{"kind":"exact","value":200},"expected_body_contains":null,"headers":{},"body":null,"verify_tls":true,"basic_auth":null,"bearer_token":null},"interval":60,"enabled":true,"tags":["prod"],"alerts":[],"group_name":null,"owner_user_id":null}`))
 	}))
 	defer srv.Close()
 
@@ -135,7 +135,7 @@ func TestOrgHeader(t *testing.T) {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			check(r)
 			w.WriteHeader(http.StatusCreated)
-			_, _ = w.Write([]byte(`{"id":"x","name":"api prod","check":{"type":"http","url":"https://example.com/healthz","method":"GET","timeout":5000,"follow_redirects":false,"max_redirects":5,"expected_status":{"kind":"exact","value":200},"expected_body_contains":null,"headers":{},"body":null,"verify_tls":true,"basic_auth":null,"bearer_token":null},"interval":60,"enabled":true,"tags":[],"alerts":[],"group_name":null,"owner_user_id":null,"public_status":false}`))
+			_, _ = w.Write([]byte(`{"id":"x","name":"api prod","check":{"type":"http","url":"https://example.com/healthz","method":"GET","timeout":5000,"follow_redirects":false,"max_redirects":5,"expected_status":{"kind":"exact","value":200},"expected_body_contains":null,"headers":{},"body":null,"verify_tls":true,"basic_auth":null,"bearer_token":null},"interval":60,"enabled":true,"tags":[],"alerts":[],"group_name":null,"owner_user_id":null}`))
 		}))
 	}
 	t.Run("sent when org set", func(t *testing.T) {

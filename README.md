@@ -49,7 +49,7 @@ resource "uptimepage_target" "api" {
 
 The provider authenticates with an API token (`Authorization: Bearer sm_live_…`), created from the UptimePage **API tokens** page (requires a verified email). Supply it via the `token` provider attribute or the `UPTIMEPAGE_TOKEN` environment variable.
 
-Grant the token the **least scope** the provider needs: `targets:write` + `channels:write` covers both managed resources (`write` implies `read`, and the provider only deletes during `terraform destroy`). Add `targets:delete` + `channels:delete` only if you run `destroy`. For defence in depth, **bind the token to the org** you manage so a leaked token can't reach your other orgs — a bound token then requires `org` to match it (else `403 ORG_HEADER_MISMATCH`).
+Grant the token the **least scope** the provider needs: `targets:write` + `channels:write` covers monitors and channels, and `status_page:write` covers status pages and their components (`write` implies `read`, and the provider only deletes during `terraform destroy`). Add the matching `:delete` scopes only if you run `destroy`. Status-page writes are **owner-only**, so the token must belong to an org owner (a non-owner member's token gets `403` on page changes). For defence in depth, **bind the token to the org** you manage so a leaked token can't reach your other orgs — a bound token then requires `org` to match it (else `403 ORG_HEADER_MISMATCH`).
 
 API tokens are user-scoped, so every managed-resource request must also name an organization — set `org` (the org **slug**) on the provider, or the `UPTIMEPAGE_ORG` environment variable. It is sent as the `X-Uptimepage-Org` header; without it the API returns `400 ORG_REQUIRED`. Find your slug at `GET /api/v1/orgs` or in the dashboard URL.
 
@@ -59,6 +59,8 @@ API tokens are user-scoped, so every managed-resource request must also name an 
 |------|------|-------|
 | `uptimepage_target` | resource | Monitors. Check types: `http`, `tcp`, `tls_cert`, `domain_expiry`, `dns`. |
 | `uptimepage_notification_channel` | resource | `webhook`, `slack`, `telegram`. |
+| `uptimepage_status_page` | resource | A public status page: slug, branding, theme. Owner-only. |
+| `uptimepage_status_page_component` | resource | Curates one monitor onto a page, with per-page overrides. |
 | `uptimepage_target` | data source | Look up a target by id. |
 
 Full reference under [`docs/`](docs/), generated from the schema.

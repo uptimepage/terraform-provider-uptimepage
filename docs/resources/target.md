@@ -123,7 +123,6 @@ resource "uptimepage_target" "dns" {
 - `enabled` (Boolean) Whether the target is actively checked.
 - `group_name` (String) Operator-side grouping label.
 - `owner_user_id` (String) Owning user id (UUID).
-- `public_status` (Boolean) Whether this target appears on the public status page.
 - `tags` (Set of String) Free-form tags.
 
 ### Read-Only

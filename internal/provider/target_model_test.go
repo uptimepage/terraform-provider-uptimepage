@@ -144,12 +144,11 @@ func TestToNew_MapsCoreFields(t *testing.T) {
 	headers, _ := types.MapValueFrom(ctx, types.StringType, map[string]string{"X-A": "1"})
 
 	m := targetModel{
-		Name:         types.StringValue("api"),
-		Interval:     types.Int64Value(60),
-		Enabled:      types.BoolValue(true),
-		Tags:         tags,
-		PublicStatus: types.BoolValue(false),
-		GroupName:    types.StringValue("group"),
+		Name:      types.StringValue("api"),
+		Interval:  types.Int64Value(60),
+		Enabled:   types.BoolValue(true),
+		Tags:      tags,
+		GroupName: types.StringValue("group"),
 		Check: checkModel{
 			Type: types.StringValue(client.CheckTypeHTTP),
 			HTTP: &httpCheckModel{

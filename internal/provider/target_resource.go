@@ -97,12 +97,6 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Optional:    true,
 				Description: "Owning user id (UUID).",
 			},
-			"public_status": schema.BoolAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
-				Description: "Whether this target appears on the public status page.",
-			},
 			"alerts": schema.ListNestedAttribute{
 				Optional:    true,
 				Computed:    true,

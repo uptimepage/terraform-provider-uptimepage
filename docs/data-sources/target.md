@@ -36,5 +36,4 @@ output "target_name" {
 - `interval` (Number)
 - `name` (String)
 - `owner_user_id` (String)
-- `public_status` (Boolean)
 - `tags` (Set of String)

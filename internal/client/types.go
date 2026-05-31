@@ -7,18 +7,17 @@ import (
 
 // Target is the read shape returned by GET/POST/PATCH /targets.
 type Target struct {
-	ID           string         `json:"id"`
-	Name         string         `json:"name"`
-	Check        CheckSpec      `json:"check"`
-	Interval     uint64         `json:"interval"` // seconds
-	Enabled      bool           `json:"enabled"`
-	Tags         []string       `json:"tags"`
-	Alerts       []AlertBinding `json:"alerts"`
-	GroupName    *string        `json:"group_name"`
-	OwnerUserID  *string        `json:"owner_user_id"`
-	PublicStatus bool           `json:"public_status"`
-	CreatedAt    string         `json:"created_at,omitempty"`
-	UpdatedAt    string         `json:"updated_at,omitempty"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Check       CheckSpec      `json:"check"`
+	Interval    uint64         `json:"interval"` // seconds
+	Enabled     bool           `json:"enabled"`
+	Tags        []string       `json:"tags"`
+	Alerts      []AlertBinding `json:"alerts"`
+	GroupName   *string        `json:"group_name"`
+	OwnerUserID *string        `json:"owner_user_id"`
+	CreatedAt   string         `json:"created_at,omitempty"`
+	UpdatedAt   string         `json:"updated_at,omitempty"`
 }
 
 // NewTarget is the POST /targets body. Enabled has no omitempty: the zero value
@@ -26,15 +25,14 @@ type Target struct {
 // DO use omitempty: a nil slice would marshal to JSON null, which the server's
 // serde-defaulted Vec rejects — omitting the key instead lets the default fire.
 type NewTarget struct {
-	Name         string         `json:"name"`
-	Check        CheckSpec      `json:"check"`
-	Interval     uint64         `json:"interval"`
-	Enabled      bool           `json:"enabled"`
-	Tags         []string       `json:"tags,omitempty"`
-	Alerts       []AlertBinding `json:"alerts,omitempty"`
-	GroupName    *string        `json:"group_name,omitempty"`
-	OwnerUserID  *string        `json:"owner_user_id,omitempty"`
-	PublicStatus bool           `json:"public_status"`
+	Name        string         `json:"name"`
+	Check       CheckSpec      `json:"check"`
+	Interval    uint64         `json:"interval"`
+	Enabled     bool           `json:"enabled"`
+	Tags        []string       `json:"tags,omitempty"`
+	Alerts      []AlertBinding `json:"alerts,omitempty"`
+	GroupName   *string        `json:"group_name,omitempty"`
+	OwnerUserID *string        `json:"owner_user_id,omitempty"`
 }
 
 // TargetUpdate is the PATCH /targets/{id} body. Terraform always holds the full
@@ -44,15 +42,14 @@ type NewTarget struct {
 // sets it. Tags/Alerts must be non-nil (UpdateTarget normalizes) so an empty
 // slice clears rather than a null being misread as "keep".
 type TargetUpdate struct {
-	Name         string         `json:"name"`
-	Check        CheckSpec      `json:"check"`
-	Interval     uint64         `json:"interval"`
-	Enabled      bool           `json:"enabled"`
-	Tags         []string       `json:"tags"`
-	Alerts       []AlertBinding `json:"alerts"`
-	GroupName    *string        `json:"group_name"`
-	OwnerUserID  *string        `json:"owner_user_id"`
-	PublicStatus bool           `json:"public_status"`
+	Name        string         `json:"name"`
+	Check       CheckSpec      `json:"check"`
+	Interval    uint64         `json:"interval"`
+	Enabled     bool           `json:"enabled"`
+	Tags        []string       `json:"tags"`
+	Alerts      []AlertBinding `json:"alerts"`
+	GroupName   *string        `json:"group_name"`
+	OwnerUserID *string        `json:"owner_user_id"`
 }
 
 // AlertBinding ties a notification channel to a target's failure threshold.
