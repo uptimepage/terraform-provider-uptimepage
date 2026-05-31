@@ -63,6 +63,12 @@ API tokens are user-scoped, so every managed-resource request must also name an 
 
 Full reference under [`docs/`](docs/), generated from the schema.
 
+## Managed-by badge
+
+The provider identifies itself on every request (a `terraform-provider-uptimepage` User-Agent), so UptimePage knows which resources Terraform manages. Those monitors and channels show a `terraform` chip in the web UI, with a banner on the monitor detail page.
+
+It's informational — the UI doesn't lock the resource. But editing a managed resource in the UI flips its badge and **the change is overwritten on the next `terraform apply`**, since your configuration stays the source of truth. Make changes in Terraform, not the UI.
+
 ## Write-only secrets
 
 Some fields are write-only: the API returns them redacted (`***`) on read, so the provider keeps the value from your configuration/state and **cannot detect out-of-band changes** to them. Rotating such a secret means changing it in your configuration. Affected fields:
