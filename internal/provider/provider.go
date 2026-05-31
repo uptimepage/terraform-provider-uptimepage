@@ -112,7 +112,7 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 		return
 	}
 
-	c := client.New(endpoint, token, org, nil)
+	c := client.New(endpoint, token, org, nil).WithUserAgentVersion(p.version)
 	resp.ResourceData = c
 	resp.DataSourceData = c
 }

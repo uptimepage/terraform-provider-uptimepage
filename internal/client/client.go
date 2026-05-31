@@ -18,12 +18,27 @@ import (
 // (uptimepage.dev) is the marketing site and 404s /api/v1.
 const DefaultEndpoint = "https://app.uptimepage.dev"
 
+// userAgentProduct is the User-Agent product name. The server matches this
+// literal substring to badge writes as Terraform-managed; without it, writes
+// fall back to the generic "api" label.
+const userAgentProduct = "terraform-provider-uptimepage"
+
+// userAgent renders the User-Agent header value for the given provider version.
+// version is the goreleaser-injected build version ("dev" when unset).
+func userAgent(version string) string {
+	if version == "" {
+		version = "dev"
+	}
+	return fmt.Sprintf("%s/%s (+https://github.com/uptimepage/terraform-provider-uptimepage)", userAgentProduct, version)
+}
+
 // Client is safe for concurrent use: it holds only immutable config plus an
 // *http.Client (itself concurrency-safe), so there is nothing to lock.
 type Client struct {
 	endpoint   string // base, no trailing slash
 	token      string
 	org        string // org slug; sent as X-Uptimepage-Org when non-empty
+	userAgent  string
 	httpClient *http.Client
 }
 
@@ -41,8 +56,18 @@ func New(endpoint, token, org string, httpClient *http.Client) *Client {
 		endpoint:   strings.TrimRight(endpoint, "/"),
 		token:      token,
 		org:        org,
+		userAgent:  userAgent(""),
 		httpClient: httpClient,
 	}
+}
+
+// WithUserAgentVersion stamps the User-Agent with the provider build version
+// and returns the receiver for chaining. Call it once at provider configure
+// time; the version is known there but not in tests, which keep the "dev"
+// default from New.
+func (c *Client) WithUserAgentVersion(version string) *Client {
+	c.userAgent = userAgent(version)
+	return c
 }
 
 // do issues one request. body is JSON-encoded when non-nil; out is JSON-decoded
@@ -64,6 +89,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", c.userAgent)
 	if c.org != "" {
 		req.Header.Set("X-Uptimepage-Org", c.org)
 	}
