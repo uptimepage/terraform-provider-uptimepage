@@ -114,6 +114,70 @@ func TestDeleteTarget_204NoBody(t *testing.T) {
 	}
 }
 
+func TestGetTargetRegions_DecodesSet(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/targets/t1/regions" {
+			t.Errorf("got %s %s, want GET /api/v1/targets/t1/regions", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"regions":["apac-sg","us-east","default"]}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "t", "", srv.Client())
+	got, err := c.GetTargetRegions(context.Background(), "t1")
+	if err != nil {
+		t.Fatalf("GetTargetRegions: %v", err)
+	}
+	if len(got) != 3 || got[0] != "apac-sg" || got[2] != "default" {
+		t.Errorf("regions = %v", got)
+	}
+}
+
+func TestSetTargetRegions_PutsBodyAndDecodes(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/api/v1/targets/t1/regions" {
+			t.Errorf("got %s %s, want PUT /api/v1/targets/t1/regions", r.Method, r.URL.Path)
+		}
+		var in TargetRegions
+		body, _ := io.ReadAll(r.Body)
+		if err := json.Unmarshal(body, &in); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		if len(in.Regions) != 2 || in.Regions[0] != "us-east" {
+			t.Errorf("body regions = %v", in.Regions)
+		}
+		_, _ = w.Write([]byte(`{"regions":["eu-west","us-east"]}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "t", "", srv.Client())
+	got, err := c.SetTargetRegions(context.Background(), "t1", []string{"us-east", "eu-west"})
+	if err != nil {
+		t.Fatalf("SetTargetRegions: %v", err)
+	}
+	if len(got) != 2 || got[0] != "eu-west" {
+		t.Errorf("regions = %v", got)
+	}
+}
+
+func TestSetTargetRegions_InvalidSurfacesAPIError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error":{"code":"REGION_INVALID","message":"unknown or disabled region: nope"}}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "t", "", srv.Client())
+	_, err := c.SetTargetRegions(context.Background(), "t1", []string{"nope"})
+	ae, ok := err.(*APIError)
+	if !ok {
+		t.Fatalf("error type = %T, want *APIError", err)
+	}
+	if ae.Code != "REGION_INVALID" || ae.Status != 422 {
+		t.Errorf("APIError = %+v", ae)
+	}
+}
+
 func TestDo_ContextCancelAborts(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

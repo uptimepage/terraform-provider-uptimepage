@@ -48,6 +48,11 @@ func (d *targetDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 				Computed:    true,
 				ElementType: types.StringType,
 			},
+			"regions": dschema.SetAttribute{
+				Computed:    true,
+				ElementType: types.StringType,
+				Description: "Regions this target probes from.",
+			},
 		},
 	}
 }
@@ -61,6 +66,7 @@ type targetDataModel struct {
 	GroupName   types.String `tfsdk:"group_name"`
 	OwnerUserID types.String `tfsdk:"owner_user_id"`
 	Tags        types.Set    `tfsdk:"tags"`
+	Regions     types.Set    `tfsdk:"regions"`
 }
 
 func (d *targetDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
@@ -79,6 +85,14 @@ func (d *targetDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 	tags, diags := types.SetValueFrom(ctx, types.StringType, got.Tags)
 	resp.Diagnostics.Append(diags...)
 
+	regionIDs, err := d.api.GetTargetRegions(ctx, cfg.ID.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError("Read target regions failed", err.Error())
+		return
+	}
+	regions, rdiags := types.SetValueFrom(ctx, types.StringType, regionIDs)
+	resp.Diagnostics.Append(rdiags...)
+
 	out := targetDataModel{
 		ID:          types.StringValue(got.ID),
 		Name:        types.StringValue(got.Name),
@@ -87,6 +101,7 @@ func (d *targetDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		GroupName:   fromOptString(got.GroupName),
 		OwnerUserID: fromOptString(got.OwnerUserID),
 		Tags:        tags,
+		Regions:     regions,
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &out)...)
 }

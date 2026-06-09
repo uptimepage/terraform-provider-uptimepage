@@ -31,6 +31,7 @@ resource "uptimepage_notification_channel" "slack" {
 resource "uptimepage_target" "api" {
   name     = "api prod"
   interval = 60
+  regions  = ["us-east", "apac-sg"] # omit to probe from every region
   check = {
     type = "http"
     http = {
@@ -64,6 +65,15 @@ API tokens are user-scoped, so every managed-resource request must also name an 
 | `uptimepage_target` | data source | Look up a target by id. |
 
 Full reference under [`docs/`](docs/), generated from the schema.
+
+## Regions
+
+`uptimepage_target.regions` selects which regions a monitor probes from, as operator-defined slugs (e.g. `us-east`, `apac-sg`). It is **optional + computed**:
+
+- **Omit it** and the server auto-assigns every available region on create (up to your plan's cap). That set is read back into state, so there is no perpetual diff.
+- **Set it** to pin an exact set; the set is replaced wholesale on each change. At least one region is required (an empty set is rejected at plan time), and unknown or disabled region ids surface the API's `REGION_INVALID` error.
+
+Regions are managed through a target sub-resource (`/api/v1/targets/{id}/regions`); reading needs the `targets:read` scope and writing needs `targets:write` — both already covered by the `targets:write` scope the provider uses. There is currently no public endpoint that lists the full region catalog, so configs must name region ids directly.
 
 ## Managed-by badge
 

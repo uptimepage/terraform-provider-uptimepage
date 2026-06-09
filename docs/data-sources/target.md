@@ -36,4 +36,5 @@ output "target_name" {
 - `interval` (Number)
 - `name` (String)
 - `owner_user_id` (String)
+- `regions` (Set of String) Regions this target probes from.
 - `tags` (Set of String)

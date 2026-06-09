@@ -20,6 +20,7 @@ type targetModel struct {
 	Interval    types.Int64  `tfsdk:"interval"`
 	Enabled     types.Bool   `tfsdk:"enabled"`
 	Tags        types.Set    `tfsdk:"tags"`
+	Regions     types.Set    `tfsdk:"regions"`
 	GroupName   types.String `tfsdk:"group_name"`
 	OwnerUserID types.String `tfsdk:"owner_user_id"`
 	Alerts      []alertModel `tfsdk:"alerts"`
@@ -150,6 +151,27 @@ func (m targetModel) tags(ctx context.Context, diags *diag.Diagnostics) []string
 	var tags []string
 	diags.Append(m.Tags.ElementsAs(ctx, &tags, false)...)
 	return tags
+}
+
+// regions extracts the configured region set as a plain slice. Regions are a
+// separate sub-resource (not part of the target create/update body), so this is
+// used by the resource CRUD to PUT the set, not by toNew/toUpdate. A null or
+// unknown set returns nil, meaning "leave the server-assigned set in place".
+func (m targetModel) regions(ctx context.Context, diags *diag.Diagnostics) []string {
+	if m.Regions.IsNull() || m.Regions.IsUnknown() {
+		return nil
+	}
+	var regions []string
+	diags.Append(m.Regions.ElementsAs(ctx, &regions, false)...)
+	return regions
+}
+
+// regionsToSet converts a region slice read back from the API into a tfsdk Set.
+// A Set is order-insensitive, so the server's ordering never produces a diff.
+func regionsToSet(ctx context.Context, regions []string, diags *diag.Diagnostics) types.Set {
+	set, d := types.SetValueFrom(ctx, types.StringType, regions)
+	diags.Append(d...)
+	return set
 }
 
 func (m targetModel) alerts() []client.AlertBinding {

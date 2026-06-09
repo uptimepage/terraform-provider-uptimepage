@@ -61,6 +61,32 @@ func (c *Client) DeleteTarget(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, targetsPath+"/"+url.PathEscape(id), nil, nil)
 }
 
+// regionsPath is the per-target region sub-resource.
+func regionsPath(id string) string {
+	return targetsPath + "/" + url.PathEscape(id) + "/regions"
+}
+
+// GetTargetRegions returns the region set currently assigned to the target
+// (requires scope targets:read). A missing target surfaces as a 404 *APIError.
+func (c *Client) GetTargetRegions(ctx context.Context, id string) ([]string, error) {
+	var out TargetRegions
+	if err := c.do(ctx, http.MethodGet, regionsPath(id), nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Regions, nil
+}
+
+// SetTargetRegions replaces the target's region set and returns the stored set
+// (requires scope targets:write). regions must be non-empty and every id must
+// name an enabled region, else the server responds 422 REGION_INVALID.
+func (c *Client) SetTargetRegions(ctx context.Context, id string, regions []string) ([]string, error) {
+	var out TargetRegions
+	if err := c.do(ctx, http.MethodPut, regionsPath(id), TargetRegions{Regions: regions}, &out); err != nil {
+		return nil, err
+	}
+	return out.Regions, nil
+}
+
 func (c *Client) ListTargets(ctx context.Context, p ListParams) (*TargetPage, error) {
 	q := url.Values{}
 	if p.Limit > 0 {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/uptimepage/terraform-provider-uptimepage/internal/client"
@@ -175,6 +176,34 @@ func TestToNew_MapsCoreFields(t *testing.T) {
 	}
 	if out.Check.HTTP == nil || out.Check.HTTP.Headers["X-A"] != "1" {
 		t.Errorf("headers not mapped: %+v", out.Check.HTTP)
+	}
+}
+
+func TestRegions_ExtractAndRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	var diags diag.Diagnostics
+
+	// Null/unknown extract to nil ("leave the server-assigned set in place").
+	if got := (targetModel{Regions: types.SetNull(types.StringType)}).regions(ctx, &diags); got != nil {
+		t.Errorf("null regions = %v, want nil", got)
+	}
+	if got := (targetModel{Regions: types.SetUnknown(types.StringType)}).regions(ctx, &diags); got != nil {
+		t.Errorf("unknown regions = %v, want nil", got)
+	}
+
+	// A configured set extracts to a slice, and a slice read back from the API
+	// round-trips to an equal Set.
+	set, d := types.SetValueFrom(ctx, types.StringType, []string{"us-east", "apac-sg"})
+	diags.Append(d...)
+	got := (targetModel{Regions: set}).regions(ctx, &diags)
+	if len(got) != 2 {
+		t.Fatalf("regions = %v, want 2 elements", got)
+	}
+	if back := regionsToSet(ctx, got, &diags); !back.Equal(set) {
+		t.Errorf("round-trip set = %v, want %v", back, set)
+	}
+	if diags.HasError() {
+		t.Fatalf("diags: %v", diags)
 	}
 }
 
