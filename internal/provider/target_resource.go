@@ -5,6 +5,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -16,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -31,6 +33,8 @@ type targetAPI interface {
 	GetTarget(ctx context.Context, id string) (*client.Target, error)
 	UpdateTarget(ctx context.Context, id string, in client.TargetUpdate) (*client.Target, error)
 	DeleteTarget(ctx context.Context, id string) error
+	GetTargetRegions(ctx context.Context, id string) ([]string, error)
+	SetTargetRegions(ctx context.Context, id string, regions []string) ([]string, error)
 }
 
 var (
@@ -88,6 +92,21 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				ElementType: types.StringType,
 				Default:     setdefault.StaticValue(types.SetValueMust(types.StringType, []attr.Value{})),
 				Description: "Free-form tags.",
+			},
+			"regions": schema.SetAttribute{
+				Optional:    true,
+				Computed:    true,
+				ElementType: types.StringType,
+				Description: "Regions this target probes from, as operator-defined slugs (e.g. \"us-east\", \"apac-sg\"). " +
+					"Omit to accept whatever the server auto-assigns on create (all regions, up to the plan cap) — that set is read back into state with no perpetual diff. " +
+					"Set it to enforce an exact set; the set is replaced wholesale on change. The server requires at least one region and rejects unknown or disabled ids.",
+				// No Default: unlike tags (which default to empty), an omitted set
+				// is server-computed (the auto-assigned region set), not empty.
+				// UseStateForUnknown keeps the prior set in the plan when config is
+				// null, so unrelated updates don't churn regions to "known after
+				// apply" (a Computed attribute without it plans unknown on update).
+				PlanModifiers: []planmodifier.Set{setplanmodifier.UseStateForUnknown()},
+				Validators:    []validator.Set{setvalidator.SizeAtLeast(1)},
 			},
 			"group_name": schema.StringAttribute{
 				Optional:    true,
@@ -357,6 +376,38 @@ func (r *targetResource) Create(ctx context.Context, req resource.CreateRequest,
 	// prior = plan so write-only secrets survive the redacted read-back.
 	state, d := targetToModel(ctx, plan, created)
 	resp.Diagnostics.Append(d...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Regions are a sub-resource. If the user configured a set, enforce it;
+	// otherwise read back the set the server auto-assigned on create.
+	desired := plan.regions(ctx, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	var applied []string
+	if desired != nil {
+		applied, err = r.api.SetTargetRegions(ctx, created.ID, desired)
+		if err != nil {
+			resp.Diagnostics.AddError("Set target regions failed", err.Error())
+			// The PUT failed (e.g. an invalid region id) but the target exists
+			// with its auto-assigned set. Persist it with that set, if readable,
+			// so Terraform tracks it instead of leaking an untracked target.
+			if cur, gerr := r.api.GetTargetRegions(ctx, created.ID); gerr == nil {
+				state.Regions = regionsToSet(ctx, cur, &resp.Diagnostics)
+				resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+			}
+			return
+		}
+	} else {
+		applied, err = r.api.GetTargetRegions(ctx, created.ID)
+		if err != nil {
+			resp.Diagnostics.AddError("Read target regions failed", err.Error())
+			return
+		}
+	}
+	state.Regions = regionsToSet(ctx, applied, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -379,12 +430,27 @@ func (r *targetResource) Read(ctx context.Context, req resource.ReadRequest, res
 
 	next, d := targetToModel(ctx, state, got)
 	resp.Diagnostics.Append(d...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	regions, err := r.api.GetTargetRegions(ctx, state.ID.ValueString())
+	if err != nil {
+		if client.IsNotFound(err) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
+		resp.Diagnostics.AddError("Read target regions failed", err.Error())
+		return
+	}
+	next.Regions = regionsToSet(ctx, regions, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &next)...)
 }
 
 func (r *targetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan targetModel
+	var plan, prior targetModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -403,6 +469,34 @@ func (r *targetResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 	state, d := targetToModel(ctx, plan, updated)
 	resp.Diagnostics.Append(d...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Reconcile the region sub-resource only when the desired set changed. When
+	// the user omits regions, Optional+Computed carries the prior set into the
+	// plan, so this compares equal and no PUT is issued.
+	applied := prior.regions(ctx, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	if !plan.Regions.Equal(prior.Regions) {
+		if desired := plan.regions(ctx, &resp.Diagnostics); desired != nil {
+			applied, err = r.api.SetTargetRegions(ctx, plan.ID.ValueString(), desired)
+		} else {
+			// Planned set is unknown (e.g. derived from another resource); pull
+			// the current set so state stays accurate.
+			applied, err = r.api.GetTargetRegions(ctx, plan.ID.ValueString())
+		}
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		if err != nil {
+			resp.Diagnostics.AddError("Set target regions failed", err.Error())
+			return
+		}
+	}
+	state.Regions = regionsToSet(ctx, applied, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 

@@ -123,6 +123,7 @@ resource "uptimepage_target" "dns" {
 - `enabled` (Boolean) Whether the target is actively checked.
 - `group_name` (String) Operator-side grouping label.
 - `owner_user_id` (String) Owning user id (UUID).
+- `regions` (Set of String) Regions this target probes from, as operator-defined slugs (e.g. "us-east", "apac-sg"). Omit to accept whatever the server auto-assigns on create (all regions, up to the plan cap) — that set is read back into state with no perpetual diff. Set it to enforce an exact set; the set is replaced wholesale on change. The server requires at least one region and rejects unknown or disabled ids.
 - `tags` (Set of String) Free-form tags.
 
 ### Read-Only
