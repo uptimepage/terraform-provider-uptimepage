@@ -170,3 +170,14 @@ func TestCheckSpec_HTTPInternallyTagged(t *testing.T) {
 		t.Errorf("round-trip lost data: %+v", back)
 	}
 }
+
+func TestChannelConfig_TelegramAppIsManaged(t *testing.T) {
+	var c ChannelConfig
+	err := json.Unmarshal([]byte(`{"type":"telegram_app","chat_id":"-100123"}`), &c)
+	if err == nil {
+		t.Fatal("telegram_app must not unmarshal into a manageable config")
+	}
+	if !strings.Contains(err.Error(), "cannot be managed by Terraform") {
+		t.Fatalf("error should explain the managed kind, got: %v", err)
+	}
+}

@@ -14,6 +14,10 @@ const (
 	ChannelTypeWebhook  = "webhook"
 	ChannelTypeSlack    = "slack"
 	ChannelTypeTelegram = "telegram"
+
+	// Created only by the dashboard's one-tap Telegram linking; the API
+	// rejects it in request bodies, so the provider cannot manage it.
+	channelTypeTelegramApp = "telegram_app"
 )
 
 // NotificationChannel is the read shape. Kind is derived server-side from the
@@ -120,6 +124,8 @@ func (c *ChannelConfig) UnmarshalJSON(data []byte) error {
 	case ChannelTypeTelegram:
 		c.Telegram = new(TelegramConfig)
 		return json.Unmarshal(data, c.Telegram)
+	case channelTypeTelegramApp:
+		return fmt.Errorf("channel type %q is linked through the dashboard's Telegram bot and cannot be managed by Terraform", probe.Type)
 	default:
 		return fmt.Errorf("unsupported channel type %q", probe.Type)
 	}

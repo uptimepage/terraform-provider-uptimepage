@@ -74,7 +74,7 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:    true,
-						Description: "Channel type: webhook, slack, telegram.",
+						Description: "Channel type: webhook, slack, telegram. The dashboard's one-tap telegram_app kind is not manageable here.",
 						Validators: []validator.String{stringvalidator.OneOf(
 							client.ChannelTypeWebhook, client.ChannelTypeSlack, client.ChannelTypeTelegram)},
 					},
