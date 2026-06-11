@@ -32,6 +32,28 @@ resource "uptimepage_notification_channel" "telegram" {
   }
 }
 
+resource "uptimepage_notification_channel" "discord" {
+  name = "ops discord"
+  config = {
+    type = "discord"
+    discord = {
+      webhook_url = var.discord_webhook_url
+    }
+  }
+}
+
+resource "uptimepage_notification_channel" "email" {
+  name = "ops mail"
+  config = {
+    type = "email"
+    email = {
+      to = "oncall@example.com"
+    }
+  }
+  # Email channels deliver only after the recipient confirms the
+  # verification mail; verified_at flips from null once they do.
+}
+
 # Reference a channel from a target's alert binding.
 resource "uptimepage_target" "api" {
   name     = "api"

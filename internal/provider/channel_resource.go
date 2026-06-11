@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"regexp"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -50,7 +51,7 @@ func (r *channelResource) Configure(_ context.Context, req resource.ConfigureReq
 
 func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A notification channel (webhook, Slack, or Telegram).",
+		Description: "A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, or email).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -68,15 +69,23 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Default:     booldefault.StaticBool(true),
 				Description: "Whether the channel is active.",
 			},
+			"verified_at": schema.StringAttribute{
+				Computed: true,
+				Description: "When the email address confirmed its verification link (RFC 3339). " +
+					"Null for non-email channels and until the recipient verifies; email channels " +
+					"deliver only after verification.",
+			},
 			"config": schema.SingleNestedAttribute{
 				Required:    true,
 				Description: "Transport config. Set `type` and the matching nested block.",
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:    true,
-						Description: "Channel type: webhook, slack, telegram. The dashboard's one-tap telegram_app kind is not manageable here.",
+						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, email. The dashboard's one-tap telegram_app kind is not manageable here.",
 						Validators: []validator.String{stringvalidator.OneOf(
-							client.ChannelTypeWebhook, client.ChannelTypeSlack, client.ChannelTypeTelegram)},
+							client.ChannelTypeWebhook, client.ChannelTypeSlack, client.ChannelTypeTelegram,
+							client.ChannelTypeDiscord, client.ChannelTypeMsTeams, client.ChannelTypeGoogleChat,
+							client.ChannelTypeEmail)},
 					},
 					"webhook": schema.SingleNestedAttribute{
 						Optional:    true,
@@ -118,6 +127,57 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 							"chat_id": schema.StringAttribute{Required: true, Description: "Target chat id."},
 						},
 					},
+					"discord": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "Discord channel webhook (when type = discord).",
+						Attributes: map[string]schema.Attribute{
+							"webhook_url": schema.StringAttribute{
+								Required:    true,
+								Sensitive:   true,
+								Description: "Discord webhook URL. Write-only.",
+							},
+						},
+					},
+					"msteams": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "Microsoft Teams incoming webhook (when type = msteams).",
+						Attributes: map[string]schema.Attribute{
+							"webhook_url": schema.StringAttribute{
+								Required:    true,
+								Sensitive:   true,
+								Description: "Teams workflow/webhook URL. Write-only.",
+							},
+						},
+					},
+					"google_chat": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "Google Chat space webhook (when type = google_chat).",
+						Attributes: map[string]schema.Attribute{
+							"webhook_url": schema.StringAttribute{
+								Required:    true,
+								Sensitive:   true,
+								Description: "Google Chat webhook URL. Write-only.",
+							},
+						},
+					},
+					"email": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "Email recipient (when type = email). Delivery starts only after the address confirms the verification mail; track it via verified_at.",
+						Attributes: map[string]schema.Attribute{
+							"to": schema.StringAttribute{
+								Required:    true,
+								Description: "Recipient address (lowercase).",
+								Validators: []validator.String{
+									stringvalidator.RegexMatches(
+										regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`),
+										"must be an email address"),
+									stringvalidator.RegexMatches(
+										regexp.MustCompile(`^[^A-Z]*$`),
+										"must be lowercase"),
+								},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -131,9 +191,13 @@ func (r *channelResource) ValidateConfig(ctx context.Context, req resource.Valid
 		return
 	}
 	validateDiscriminatedBlock(path.Root("config"), cfg.Config.Type.ValueString(), map[string]bool{
-		client.ChannelTypeWebhook:  cfg.Config.Webhook != nil,
-		client.ChannelTypeSlack:    cfg.Config.Slack != nil,
-		client.ChannelTypeTelegram: cfg.Config.Telegram != nil,
+		client.ChannelTypeWebhook:    cfg.Config.Webhook != nil,
+		client.ChannelTypeSlack:      cfg.Config.Slack != nil,
+		client.ChannelTypeTelegram:   cfg.Config.Telegram != nil,
+		client.ChannelTypeDiscord:    cfg.Config.Discord != nil,
+		client.ChannelTypeMsTeams:    cfg.Config.MsTeams != nil,
+		client.ChannelTypeGoogleChat: cfg.Config.GoogleChat != nil,
+		client.ChannelTypeEmail:      cfg.Config.Email != nil,
 	}, &resp.Diagnostics)
 }
 
@@ -179,12 +243,13 @@ func (r *channelResource) Read(ctx context.Context, req resource.ReadRequest, re
 }
 
 func (r *channelResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan channelModel
+	var plan, state channelModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	in, d := plan.toUpdate(ctx)
+	in, d := plan.toUpdate(ctx, state)
 	resp.Diagnostics.Append(d...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -194,9 +259,9 @@ func (r *channelResource) Update(ctx context.Context, req resource.UpdateRequest
 		resp.Diagnostics.AddError("Update channel failed", err.Error())
 		return
 	}
-	state, d := channelToModel(ctx, plan, updated)
+	next, d := channelToModel(ctx, plan, updated)
 	resp.Diagnostics.Append(d...)
-	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, &next)...)
 }
 
 func (r *channelResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
