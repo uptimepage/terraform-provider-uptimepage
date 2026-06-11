@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -12,19 +13,24 @@ import (
 
 // channelModel is the tfsdk view of an uptimepage_notification_channel.
 type channelModel struct {
-	ID      types.String       `tfsdk:"id"`
-	Name    types.String       `tfsdk:"name"`
-	Kind    types.String       `tfsdk:"kind"`
-	Enabled types.Bool         `tfsdk:"enabled"`
-	Config  channelConfigModel `tfsdk:"config"`
+	ID         types.String       `tfsdk:"id"`
+	Name       types.String       `tfsdk:"name"`
+	Kind       types.String       `tfsdk:"kind"`
+	Enabled    types.Bool         `tfsdk:"enabled"`
+	VerifiedAt types.String       `tfsdk:"verified_at"`
+	Config     channelConfigModel `tfsdk:"config"`
 }
 
 // channelConfigModel is the discriminated config block.
 type channelConfigModel struct {
-	Type     types.String         `tfsdk:"type"`
-	Webhook  *webhookConfigModel  `tfsdk:"webhook"`
-	Slack    *slackConfigModel    `tfsdk:"slack"`
-	Telegram *telegramConfigModel `tfsdk:"telegram"`
+	Type       types.String           `tfsdk:"type"`
+	Webhook    *webhookConfigModel    `tfsdk:"webhook"`
+	Slack      *slackConfigModel      `tfsdk:"slack"`
+	Telegram   *telegramConfigModel   `tfsdk:"telegram"`
+	Discord    *discordConfigModel    `tfsdk:"discord"`
+	MsTeams    *msteamsConfigModel    `tfsdk:"msteams"`
+	GoogleChat *googleChatConfigModel `tfsdk:"google_chat"`
+	Email      *emailConfigModel      `tfsdk:"email"`
 }
 
 type webhookConfigModel struct {
@@ -41,6 +47,22 @@ type telegramConfigModel struct {
 	ChatID   types.String `tfsdk:"chat_id"`
 }
 
+type discordConfigModel struct {
+	WebhookURL types.String `tfsdk:"webhook_url"`
+}
+
+type msteamsConfigModel struct {
+	WebhookURL types.String `tfsdk:"webhook_url"`
+}
+
+type googleChatConfigModel struct {
+	WebhookURL types.String `tfsdk:"webhook_url"`
+}
+
+type emailConfigModel struct {
+	To types.String `tfsdk:"to"`
+}
+
 func (m channelModel) toNew(ctx context.Context) (client.NewNotificationChannel, diag.Diagnostics) {
 	cfg, diags := m.Config.toWire(ctx)
 	return client.NewNotificationChannel{
@@ -50,13 +72,21 @@ func (m channelModel) toNew(ctx context.Context) (client.NewNotificationChannel,
 	}, diags
 }
 
-func (m channelModel) toUpdate(ctx context.Context) (client.ChannelUpdate, diag.Diagnostics) {
+// toUpdate builds the PATCH body. Config is sent only when it differs from
+// the prior state: the server treats any config in the body as a full
+// replacement — secrets rewritten and an email channel's verification reset
+// — so a plain rename or enabled toggle must not carry it.
+func (m channelModel) toUpdate(ctx context.Context, prior channelModel) (client.ChannelUpdate, diag.Diagnostics) {
 	cfg, diags := m.Config.toWire(ctx)
-	return client.ChannelUpdate{
+	out := client.ChannelUpdate{
 		Name:    m.Name.ValueString(),
-		Config:  cfg,
+		Config:  &cfg,
 		Enabled: m.Enabled.ValueBool(),
-	}, diags
+	}
+	if priorCfg, d := prior.Config.toWire(ctx); !d.HasError() && reflect.DeepEqual(cfg, priorCfg) {
+		out.Config = nil
+	}
+	return out, diags
 }
 
 func (c channelConfigModel) toWire(ctx context.Context) (client.ChannelConfig, diag.Diagnostics) {
@@ -86,6 +116,26 @@ func (c channelConfigModel) toWire(ctx context.Context) (client.ChannelConfig, d
 			BotToken: c.Telegram.BotToken.ValueString(),
 			ChatID:   c.Telegram.ChatID.ValueString(),
 		}
+	case client.ChannelTypeDiscord:
+		if c.Discord == nil {
+			return out, missingBlock(kind)
+		}
+		out.Discord = &client.DiscordConfig{WebhookURL: c.Discord.WebhookURL.ValueString()}
+	case client.ChannelTypeMsTeams:
+		if c.MsTeams == nil {
+			return out, missingBlock(kind)
+		}
+		out.MsTeams = &client.MsTeamsConfig{WebhookURL: c.MsTeams.WebhookURL.ValueString()}
+	case client.ChannelTypeGoogleChat:
+		if c.GoogleChat == nil {
+			return out, missingBlock(kind)
+		}
+		out.GoogleChat = &client.GoogleChatConfig{WebhookURL: c.GoogleChat.WebhookURL.ValueString()}
+	case client.ChannelTypeEmail:
+		if c.Email == nil {
+			return out, missingBlock(kind)
+		}
+		out.Email = &client.EmailConfig{To: c.Email.To.ValueString()}
 	default:
 		diags.AddError("Invalid config", fmt.Sprintf("unsupported channel type %q", kind))
 	}
@@ -97,12 +147,17 @@ func (c channelConfigModel) toWire(ctx context.Context) (client.ChannelConfig, d
 // webhook_url, telegram bot_token).
 func channelToModel(ctx context.Context, prior channelModel, ch *client.NotificationChannel) (channelModel, diag.Diagnostics) {
 	cfg, diags := configToModel(ctx, prior.Config, ch.Config)
+	verifiedAt := types.StringNull()
+	if ch.VerifiedAt != "" {
+		verifiedAt = types.StringValue(ch.VerifiedAt)
+	}
 	return channelModel{
-		ID:      types.StringValue(ch.ID),
-		Name:    types.StringValue(ch.Name),
-		Kind:    types.StringValue(ch.Kind),
-		Enabled: types.BoolValue(ch.Enabled),
-		Config:  cfg,
+		ID:         types.StringValue(ch.ID),
+		Name:       types.StringValue(ch.Name),
+		Kind:       types.StringValue(ch.Kind),
+		Enabled:    types.BoolValue(ch.Enabled),
+		VerifiedAt: verifiedAt,
+		Config:     cfg,
 	}, diags
 }
 
@@ -135,6 +190,26 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 			BotToken: keepSecret(priorToken, &cfg.Telegram.BotToken),
 			ChatID:   types.StringValue(cfg.Telegram.ChatID),
 		}
+	case cfg.Discord != nil:
+		priorURL := types.StringNull()
+		if prior.Discord != nil {
+			priorURL = prior.Discord.WebhookURL
+		}
+		out.Discord = &discordConfigModel{WebhookURL: keepSecret(priorURL, &cfg.Discord.WebhookURL)}
+	case cfg.MsTeams != nil:
+		priorURL := types.StringNull()
+		if prior.MsTeams != nil {
+			priorURL = prior.MsTeams.WebhookURL
+		}
+		out.MsTeams = &msteamsConfigModel{WebhookURL: keepSecret(priorURL, &cfg.MsTeams.WebhookURL)}
+	case cfg.GoogleChat != nil:
+		priorURL := types.StringNull()
+		if prior.GoogleChat != nil {
+			priorURL = prior.GoogleChat.WebhookURL
+		}
+		out.GoogleChat = &googleChatConfigModel{WebhookURL: keepSecret(priorURL, &cfg.GoogleChat.WebhookURL)}
+	case cfg.Email != nil:
+		out.Email = &emailConfigModel{To: types.StringValue(cfg.Email.To)}
 	default:
 		diags.AddError("Unsupported channel type", fmt.Sprintf("channel type %q has no config", cfg.Type))
 	}

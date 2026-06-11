@@ -11,9 +11,13 @@ import (
 const channelsPath = "/api/v1/notification-channels"
 
 const (
-	ChannelTypeWebhook  = "webhook"
-	ChannelTypeSlack    = "slack"
-	ChannelTypeTelegram = "telegram"
+	ChannelTypeWebhook    = "webhook"
+	ChannelTypeSlack      = "slack"
+	ChannelTypeTelegram   = "telegram"
+	ChannelTypeDiscord    = "discord"
+	ChannelTypeMsTeams    = "msteams"
+	ChannelTypeGoogleChat = "google_chat"
+	ChannelTypeEmail      = "email"
 
 	// Created only by the dashboard's one-tap Telegram linking; the API
 	// rejects it in request bodies, so the provider cannot manage it.
@@ -23,13 +27,16 @@ const (
 // NotificationChannel is the read shape. Kind is derived server-side from the
 // config type. Secret-bearing config fields come back as "***".
 type NotificationChannel struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Kind      string        `json:"kind"`
-	Config    ChannelConfig `json:"config"`
-	Enabled   bool          `json:"enabled"`
-	CreatedAt string        `json:"created_at,omitempty"`
-	UpdatedAt string        `json:"updated_at,omitempty"`
+	ID      string        `json:"id"`
+	Name    string        `json:"name"`
+	Kind    string        `json:"kind"`
+	Config  ChannelConfig `json:"config"`
+	Enabled bool          `json:"enabled"`
+	// Set once an email channel's address confirms its verification link;
+	// absent for every other kind and for unverified addresses.
+	VerifiedAt string `json:"verified_at,omitempty"`
+	CreatedAt  string `json:"created_at,omitempty"`
+	UpdatedAt  string `json:"updated_at,omitempty"`
 }
 
 // NewNotificationChannel is the POST body (kind is derived from config).
@@ -39,20 +46,26 @@ type NewNotificationChannel struct {
 	Enabled bool          `json:"enabled"`
 }
 
-// ChannelUpdate is the PATCH body, sent as full desired state.
+// ChannelUpdate is the PATCH body. A nil Config is omitted: the server
+// treats any config in the body as a full replacement (secrets rewritten,
+// email verification reset), so callers send it only when it changed.
 type ChannelUpdate struct {
-	Name    string        `json:"name"`
-	Config  ChannelConfig `json:"config"`
-	Enabled bool          `json:"enabled"`
+	Name    string         `json:"name"`
+	Config  *ChannelConfig `json:"config,omitempty"`
+	Enabled bool           `json:"enabled"`
 }
 
 // ChannelConfig is the internally-tagged transport config (discriminator
 // "type"). Exactly one variant pointer is set.
 type ChannelConfig struct {
-	Type     string          `json:"-"`
-	Webhook  *WebhookConfig  `json:"-"`
-	Slack    *SlackConfig    `json:"-"`
-	Telegram *TelegramConfig `json:"-"`
+	Type       string            `json:"-"`
+	Webhook    *WebhookConfig    `json:"-"`
+	Slack      *SlackConfig      `json:"-"`
+	Telegram   *TelegramConfig   `json:"-"`
+	Discord    *DiscordConfig    `json:"-"`
+	MsTeams    *MsTeamsConfig    `json:"-"`
+	GoogleChat *GoogleChatConfig `json:"-"`
+	Email      *EmailConfig      `json:"-"`
 }
 
 // WebhookConfig: url and header values are redacted on read.
@@ -70,6 +83,28 @@ type SlackConfig struct {
 type TelegramConfig struct {
 	BotToken string `json:"bot_token"`
 	ChatID   string `json:"chat_id"`
+}
+
+// DiscordConfig: webhook_url is redacted on read.
+type DiscordConfig struct {
+	WebhookURL string `json:"webhook_url"`
+}
+
+// MsTeamsConfig: webhook_url is redacted on read.
+type MsTeamsConfig struct {
+	WebhookURL string `json:"webhook_url"`
+}
+
+// GoogleChatConfig: webhook_url is redacted on read.
+type GoogleChatConfig struct {
+	WebhookURL string `json:"webhook_url"`
+}
+
+// EmailConfig: the recipient address; not redacted on read. Delivery starts
+// only after the address confirms its verification mail (see
+// NotificationChannel.VerifiedAt).
+type EmailConfig struct {
+	To string `json:"to"`
 }
 
 func (c ChannelConfig) MarshalJSON() ([]byte, error) {
@@ -98,6 +133,38 @@ func (c ChannelConfig) MarshalJSON() ([]byte, error) {
 			Type string `json:"type"`
 			TelegramConfig
 		}{c.Type, *c.Telegram})
+	case ChannelTypeDiscord:
+		if c.Discord == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			DiscordConfig
+		}{c.Type, *c.Discord})
+	case ChannelTypeMsTeams:
+		if c.MsTeams == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			MsTeamsConfig
+		}{c.Type, *c.MsTeams})
+	case ChannelTypeGoogleChat:
+		if c.GoogleChat == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			GoogleChatConfig
+		}{c.Type, *c.GoogleChat})
+	case ChannelTypeEmail:
+		if c.Email == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			EmailConfig
+		}{c.Type, *c.Email})
 	case "":
 		return nil, fmt.Errorf("channel config has no type")
 	default:
@@ -124,6 +191,18 @@ func (c *ChannelConfig) UnmarshalJSON(data []byte) error {
 	case ChannelTypeTelegram:
 		c.Telegram = new(TelegramConfig)
 		return json.Unmarshal(data, c.Telegram)
+	case ChannelTypeDiscord:
+		c.Discord = new(DiscordConfig)
+		return json.Unmarshal(data, c.Discord)
+	case ChannelTypeMsTeams:
+		c.MsTeams = new(MsTeamsConfig)
+		return json.Unmarshal(data, c.MsTeams)
+	case ChannelTypeGoogleChat:
+		c.GoogleChat = new(GoogleChatConfig)
+		return json.Unmarshal(data, c.GoogleChat)
+	case ChannelTypeEmail:
+		c.Email = new(EmailConfig)
+		return json.Unmarshal(data, c.Email)
 	case channelTypeTelegramApp:
 		return fmt.Errorf("channel type %q is linked through the dashboard's Telegram bot and cannot be managed by Terraform", probe.Type)
 	default:

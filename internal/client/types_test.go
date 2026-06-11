@@ -104,9 +104,13 @@ func TestCheckSpec_VariantsRoundTrip(t *testing.T) {
 
 func TestChannelConfig_VariantsRoundTrip(t *testing.T) {
 	cases := map[string]ChannelConfig{
-		"webhook":  {Type: ChannelTypeWebhook, Webhook: &WebhookConfig{URL: "https://x", Headers: map[string]string{"A": "b"}}},
-		"slack":    {Type: ChannelTypeSlack, Slack: &SlackConfig{WebhookURL: "https://hooks"}},
-		"telegram": {Type: ChannelTypeTelegram, Telegram: &TelegramConfig{BotToken: "123:abc", ChatID: "-100"}},
+		"webhook":     {Type: ChannelTypeWebhook, Webhook: &WebhookConfig{URL: "https://x", Headers: map[string]string{"A": "b"}}},
+		"slack":       {Type: ChannelTypeSlack, Slack: &SlackConfig{WebhookURL: "https://hooks"}},
+		"telegram":    {Type: ChannelTypeTelegram, Telegram: &TelegramConfig{BotToken: "123:abc", ChatID: "-100"}},
+		"discord":     {Type: ChannelTypeDiscord, Discord: &DiscordConfig{WebhookURL: "https://discord.com/api/webhooks/1/x"}},
+		"msteams":     {Type: ChannelTypeMsTeams, MsTeams: &MsTeamsConfig{WebhookURL: "https://contoso.webhook.office.com/x"}},
+		"google_chat": {Type: ChannelTypeGoogleChat, GoogleChat: &GoogleChatConfig{WebhookURL: "https://chat.googleapis.com/v1/spaces/x"}},
+		"email":       {Type: ChannelTypeEmail, Email: &EmailConfig{To: "oncall@example.com"}},
 	}
 	for name, cfg := range cases {
 		t.Run(name, func(t *testing.T) {

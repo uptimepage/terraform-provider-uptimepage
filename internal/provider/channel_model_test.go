@@ -61,6 +61,118 @@ func TestChannelConfig_RedactionSuppressed(t *testing.T) {
 			t.Errorf("chat_id (non-secret) should reflect API: %q", got.Telegram.ChatID.ValueString())
 		}
 	})
+
+	t.Run("discord", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeDiscord), Discord: &discordConfigModel{WebhookURL: types.StringValue("https://real")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeDiscord, Discord: &client.DiscordConfig{WebhookURL: redactedSentinel}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Discord.WebhookURL.ValueString() != "https://real" {
+			t.Errorf("webhook_url not preserved: %q", got.Discord.WebhookURL.ValueString())
+		}
+	})
+
+	t.Run("msteams", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeMsTeams), MsTeams: &msteamsConfigModel{WebhookURL: types.StringValue("https://real")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeMsTeams, MsTeams: &client.MsTeamsConfig{WebhookURL: redactedSentinel}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.MsTeams.WebhookURL.ValueString() != "https://real" {
+			t.Errorf("webhook_url not preserved: %q", got.MsTeams.WebhookURL.ValueString())
+		}
+	})
+
+	t.Run("google_chat", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeGoogleChat), GoogleChat: &googleChatConfigModel{WebhookURL: types.StringValue("https://real")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeGoogleChat, GoogleChat: &client.GoogleChatConfig{WebhookURL: redactedSentinel}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.GoogleChat.WebhookURL.ValueString() != "https://real" {
+			t.Errorf("webhook_url not preserved: %q", got.GoogleChat.WebhookURL.ValueString())
+		}
+	})
+
+	t.Run("email_not_redacted", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeEmail), Email: &emailConfigModel{To: types.StringValue("old@example.com")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeEmail, Email: &client.EmailConfig{To: "oncall@example.com"}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Email.To.ValueString() != "oncall@example.com" {
+			t.Errorf("to (non-secret) should reflect API: %q", got.Email.To.ValueString())
+		}
+	})
+}
+
+func TestChannelToModel_VerifiedAt(t *testing.T) {
+	ctx := context.Background()
+	prior := channelModel{Config: channelConfigModel{
+		Type:  types.StringValue(client.ChannelTypeEmail),
+		Email: &emailConfigModel{To: types.StringValue("oncall@example.com")},
+	}}
+
+	unverified := &client.NotificationChannel{
+		ID: "id-1", Name: "Mail", Kind: client.ChannelTypeEmail, Enabled: true,
+		Config: client.ChannelConfig{Type: client.ChannelTypeEmail, Email: &client.EmailConfig{To: "oncall@example.com"}},
+	}
+	got, d := channelToModel(ctx, prior, unverified)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if !got.VerifiedAt.IsNull() {
+		t.Errorf("verified_at should be null before verification, got %q", got.VerifiedAt.ValueString())
+	}
+
+	unverified.VerifiedAt = "2026-06-12T00:00:00Z"
+	got, d = channelToModel(ctx, prior, unverified)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if got.VerifiedAt.ValueString() != "2026-06-12T00:00:00Z" {
+		t.Errorf("verified_at = %q", got.VerifiedAt.ValueString())
+	}
+}
+
+// A rename/toggle must not carry config: the server treats config in the
+// PATCH as a replacement and would reset an email channel's verification.
+func TestChannelModel_ToUpdateOmitsUnchangedConfig(t *testing.T) {
+	ctx := context.Background()
+	emailCfg := channelConfigModel{
+		Type:  types.StringValue(client.ChannelTypeEmail),
+		Email: &emailConfigModel{To: types.StringValue("oncall@example.com")},
+	}
+	prior := channelModel{Name: types.StringValue("Mail"), Config: emailCfg}
+
+	renamed := channelModel{Name: types.StringValue("Mail v2"), Config: emailCfg}
+	up, d := renamed.toUpdate(ctx, prior)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if up.Config != nil {
+		t.Errorf("unchanged config must be omitted from the PATCH, got %+v", up.Config)
+	}
+	if up.Name != "Mail v2" {
+		t.Errorf("name = %q", up.Name)
+	}
+
+	retargeted := channelModel{Name: types.StringValue("Mail"), Config: channelConfigModel{
+		Type:  types.StringValue(client.ChannelTypeEmail),
+		Email: &emailConfigModel{To: types.StringValue("other@example.com")},
+	}}
+	up, d = retargeted.toUpdate(ctx, prior)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if up.Config == nil || up.Config.Email == nil || up.Config.Email.To != "other@example.com" {
+		t.Errorf("changed config must be sent, got %+v", up.Config)
+	}
 }
 
 func TestChannelConfig_ToWireMissingBlock(t *testing.T) {
