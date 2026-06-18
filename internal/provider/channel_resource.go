@@ -51,7 +51,7 @@ func (r *channelResource) Configure(_ context.Context, req resource.ConfigureReq
 
 func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, or email).",
+		Description: "A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, or SMS).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -81,11 +81,11 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:    true,
-						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, email. The dashboard's one-tap telegram_app kind is not manageable here.",
+						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, sms. The dashboard's one-tap telegram_app kind is not manageable here.",
 						Validators: []validator.String{stringvalidator.OneOf(
 							client.ChannelTypeWebhook, client.ChannelTypeSlack, client.ChannelTypeTelegram,
 							client.ChannelTypeDiscord, client.ChannelTypeMsTeams, client.ChannelTypeGoogleChat,
-							client.ChannelTypeEmail)},
+							client.ChannelTypeEmail, client.ChannelTypeSMS)},
 					},
 					"webhook": schema.SingleNestedAttribute{
 						Optional:    true,
@@ -178,6 +178,65 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 							},
 						},
 					},
+					"sms": schema.SingleNestedAttribute{
+						Optional: true,
+						Description: "Bring-your-own SMS gateway (when type = sms). Set `provider` and that " +
+							"gateway's credentials; unused fields are ignored.",
+						Attributes: map[string]schema.Attribute{
+							"provider": schema.StringAttribute{
+								Required:    true,
+								Description: "SMS gateway: twilio, telnyx, vonage, plivo, sinch.",
+								Validators:  []validator.String{stringvalidator.OneOf("twilio", "telnyx", "vonage", "plivo", "sinch")},
+							},
+							"to": schema.StringAttribute{
+								Required:    true,
+								Description: "Recipient phone number in E.164 format (e.g. +15551234567).",
+								Validators: []validator.String{stringvalidator.RegexMatches(
+									regexp.MustCompile(`^\+[1-9]\d{7,14}$`), "must be E.164, e.g. +15551234567")},
+							},
+							"from": schema.StringAttribute{
+								Required:    true,
+								Description: "Sender: an E.164 number, alphanumeric sender id, or messaging-service id.",
+							},
+							"account_sid": schema.StringAttribute{
+								Optional: true, Description: "Twilio Account SID (provider = twilio).",
+							},
+							"auth_token": schema.StringAttribute{
+								Optional: true, Sensitive: true,
+								Description: "Twilio/Plivo auth token (provider = twilio or plivo). Write-only.",
+							},
+							"api_key": schema.StringAttribute{
+								Optional: true, Sensitive: true,
+								Description: "Telnyx/Vonage API key (provider = telnyx or vonage). Write-only.",
+							},
+							"api_secret": schema.StringAttribute{
+								Optional: true, Sensitive: true,
+								Description: "Vonage API secret (provider = vonage). Write-only.",
+							},
+							"messaging_profile_id": schema.StringAttribute{
+								Optional: true, Description: "Telnyx messaging profile id (provider = telnyx, optional).",
+							},
+							"auth_id": schema.StringAttribute{
+								Optional: true, Description: "Plivo Auth ID (provider = plivo).",
+							},
+							"service_plan_id": schema.StringAttribute{
+								Optional: true, Description: "Sinch service plan id (provider = sinch).",
+							},
+							"api_token": schema.StringAttribute{
+								Optional: true, Sensitive: true,
+								Description: "Sinch API token (provider = sinch). Write-only.",
+							},
+							"region": schema.StringAttribute{
+								Optional: true,
+								// Sinch defaults an omitted region to us server-side; Computed
+								// adopts that read-back so an unset region is not a perpetual diff.
+								Computed:      true,
+								Description:   "Sinch cluster region (provider = sinch): us, eu, au, br, ca. Defaults to us.",
+								Validators:    []validator.String{stringvalidator.OneOf("us", "eu", "au", "br", "ca")},
+								PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+							},
+						},
+					},
 				},
 			},
 		},
@@ -198,6 +257,7 @@ func (r *channelResource) ValidateConfig(ctx context.Context, req resource.Valid
 		client.ChannelTypeMsTeams:    cfg.Config.MsTeams != nil,
 		client.ChannelTypeGoogleChat: cfg.Config.GoogleChat != nil,
 		client.ChannelTypeEmail:      cfg.Config.Email != nil,
+		client.ChannelTypeSMS:        cfg.Config.SMS != nil,
 	}, &resp.Diagnostics)
 }
 
