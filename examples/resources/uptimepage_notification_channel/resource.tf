@@ -54,6 +54,53 @@ resource "uptimepage_notification_channel" "email" {
   # verification mail; verified_at flips from null once they do.
 }
 
+resource "uptimepage_notification_channel" "pagerduty" {
+  name = "ops pagerduty"
+  config = {
+    type = "pagerduty"
+    pagerduty = {
+      routing_key = var.pagerduty_routing_key
+    }
+  }
+}
+
+resource "uptimepage_notification_channel" "ntfy" {
+  name = "ops ntfy"
+  config = {
+    type = "ntfy"
+    ntfy = {
+      topic = "my-uptime-alerts"
+      # server_url defaults to https://ntfy.sh; set it for a self-hosted server.
+      # access_token = var.ntfy_token  # only for protected topics
+    }
+  }
+}
+
+resource "uptimepage_notification_channel" "pushover" {
+  name = "ops pushover"
+  config = {
+    type = "pushover"
+    pushover = {
+      token     = var.pushover_token
+      user      = var.pushover_user
+      emergency = true
+    }
+  }
+}
+
+resource "uptimepage_notification_channel" "whatsapp" {
+  name = "ops whatsapp"
+  config = {
+    type = "whatsapp"
+    whatsapp = {
+      access_token    = var.whatsapp_access_token
+      phone_number_id = "106540352242922"
+      to              = "15551234567"
+      template_name   = "uptime_alert"
+    }
+  }
+}
+
 # Bring-your-own SMS gateway. Set provider and that gateway's credentials.
 resource "uptimepage_notification_channel" "sms_twilio" {
   name = "oncall sms"

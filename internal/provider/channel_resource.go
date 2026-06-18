@@ -51,7 +51,7 @@ func (r *channelResource) Configure(_ context.Context, req resource.ConfigureReq
 
 func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, or SMS).",
+		Description: "A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Pushover, WhatsApp, or SMS).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -81,11 +81,12 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:    true,
-						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, sms. The dashboard's one-tap telegram_app kind is not manageable here.",
+						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, pagerduty, ntfy, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.",
 						Validators: []validator.String{stringvalidator.OneOf(
 							client.ChannelTypeWebhook, client.ChannelTypeSlack, client.ChannelTypeTelegram,
 							client.ChannelTypeDiscord, client.ChannelTypeMsTeams, client.ChannelTypeGoogleChat,
-							client.ChannelTypeEmail, client.ChannelTypeSMS)},
+							client.ChannelTypeEmail, client.ChannelTypePagerDuty, client.ChannelTypeNtfy,
+							client.ChannelTypePushover, client.ChannelTypeWhatsApp, client.ChannelTypeSMS)},
 					},
 					"webhook": schema.SingleNestedAttribute{
 						Optional:    true,
@@ -178,6 +179,81 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 							},
 						},
 					},
+					"pagerduty": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "PagerDuty Events API v2 (when type = pagerduty).",
+						Attributes: map[string]schema.Attribute{
+							"routing_key": schema.StringAttribute{
+								Required: true, Sensitive: true,
+								Description: "Events API v2 integration (routing) key. Write-only.",
+							},
+						},
+					},
+					"ntfy": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "ntfy topic push (when type = ntfy).",
+						Attributes: map[string]schema.Attribute{
+							"server_url": schema.StringAttribute{
+								Optional: true,
+								// Server defaults an omitted server_url to https://ntfy.sh;
+								// Computed adopts that read-back so it is not a perpetual diff.
+								Computed:      true,
+								Description:   "ntfy server root. Defaults to https://ntfy.sh.",
+								PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+							},
+							"topic": schema.StringAttribute{Required: true, Description: "Topic to publish to."},
+							"access_token": schema.StringAttribute{
+								Optional: true, Sensitive: true,
+								Description: "Bearer token for protected topics. Write-only.",
+							},
+						},
+					},
+					"pushover": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "Pushover (when type = pushover).",
+						Attributes: map[string]schema.Attribute{
+							"token": schema.StringAttribute{
+								Required: true, Sensitive: true, Description: "Application API token. Write-only.",
+							},
+							"user": schema.StringAttribute{
+								Required: true, Sensitive: true, Description: "User or group key. Write-only.",
+							},
+							"device": schema.StringAttribute{
+								Optional: true, Description: "Target device name; empty delivers to all devices.",
+							},
+							"emergency": schema.BoolAttribute{
+								Optional:    true,
+								Computed:    true,
+								Default:     booldefault.StaticBool(false),
+								Description: "Send high-urgency alerts at emergency priority (repeat until acknowledged).",
+							},
+						},
+					},
+					"whatsapp": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "WhatsApp Business Cloud API (when type = whatsapp).",
+						Attributes: map[string]schema.Attribute{
+							"access_token": schema.StringAttribute{
+								Required: true, Sensitive: true, Description: "Cloud API access token. Write-only.",
+							},
+							"phone_number_id": schema.StringAttribute{
+								Required:    true,
+								Description: "Business phone number id (numeric).",
+								Validators:  []validator.String{stringvalidator.RegexMatches(regexp.MustCompile(`^\d+$`), "must be numeric")},
+							},
+							"to": schema.StringAttribute{
+								Required: true, Description: "Recipient phone number in international format.",
+							},
+							"template_name": schema.StringAttribute{
+								Required:    true,
+								Description: "Approved template name (lowercase letters, digits, underscore).",
+								Validators:  []validator.String{stringvalidator.RegexMatches(regexp.MustCompile(`^[a-z0-9_]+$`), "must be lowercase letters, digits, or underscore")},
+							},
+							"language_code": schema.StringAttribute{
+								Optional: true, Description: "Template language (e.g. en, en_US). Defaults to en.",
+							},
+						},
+					},
 					"sms": schema.SingleNestedAttribute{
 						Optional: true,
 						Description: "Bring-your-own SMS gateway (when type = sms). Set `provider` and that " +
@@ -257,6 +333,10 @@ func (r *channelResource) ValidateConfig(ctx context.Context, req resource.Valid
 		client.ChannelTypeMsTeams:    cfg.Config.MsTeams != nil,
 		client.ChannelTypeGoogleChat: cfg.Config.GoogleChat != nil,
 		client.ChannelTypeEmail:      cfg.Config.Email != nil,
+		client.ChannelTypePagerDuty:  cfg.Config.PagerDuty != nil,
+		client.ChannelTypeNtfy:       cfg.Config.Ntfy != nil,
+		client.ChannelTypePushover:   cfg.Config.Pushover != nil,
+		client.ChannelTypeWhatsApp:   cfg.Config.WhatsApp != nil,
 		client.ChannelTypeSMS:        cfg.Config.SMS != nil,
 	}, &resp.Diagnostics)
 }

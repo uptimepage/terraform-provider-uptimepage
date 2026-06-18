@@ -3,12 +3,12 @@
 page_title: "uptimepage_notification_channel Resource - uptimepage"
 subcategory: ""
 description: |-
-  A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, or SMS).
+  A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Pushover, WhatsApp, or SMS).
 ---
 
 # uptimepage_notification_channel (Resource)
 
-A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, or SMS).
+A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Pushover, WhatsApp, or SMS).
 
 ## Example Usage
 
@@ -67,6 +67,53 @@ resource "uptimepage_notification_channel" "email" {
   }
   # Email channels deliver only after the recipient confirms the
   # verification mail; verified_at flips from null once they do.
+}
+
+resource "uptimepage_notification_channel" "pagerduty" {
+  name = "ops pagerduty"
+  config = {
+    type = "pagerduty"
+    pagerduty = {
+      routing_key = var.pagerduty_routing_key
+    }
+  }
+}
+
+resource "uptimepage_notification_channel" "ntfy" {
+  name = "ops ntfy"
+  config = {
+    type = "ntfy"
+    ntfy = {
+      topic = "my-uptime-alerts"
+      # server_url defaults to https://ntfy.sh; set it for a self-hosted server.
+      # access_token = var.ntfy_token  # only for protected topics
+    }
+  }
+}
+
+resource "uptimepage_notification_channel" "pushover" {
+  name = "ops pushover"
+  config = {
+    type = "pushover"
+    pushover = {
+      token     = var.pushover_token
+      user      = var.pushover_user
+      emergency = true
+    }
+  }
+}
+
+resource "uptimepage_notification_channel" "whatsapp" {
+  name = "ops whatsapp"
+  config = {
+    type = "whatsapp"
+    whatsapp = {
+      access_token    = var.whatsapp_access_token
+      phone_number_id = "106540352242922"
+      to              = "15551234567"
+      template_name   = "uptime_alert"
+    }
+  }
 }
 
 # Bring-your-own SMS gateway. Set provider and that gateway's credentials.
@@ -141,7 +188,7 @@ resource "uptimepage_target" "api" {
 
 Required:
 
-- `type` (String) Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, sms. The dashboard's one-tap telegram_app kind is not manageable here.
+- `type` (String) Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, pagerduty, ntfy, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.
 
 Optional:
 
@@ -149,10 +196,14 @@ Optional:
 - `email` (Attributes) Email recipient (when type = email). Delivery starts only after the address confirms the verification mail; track it via verified_at. (see [below for nested schema](#nestedatt--config--email))
 - `google_chat` (Attributes) Google Chat space webhook (when type = google_chat). (see [below for nested schema](#nestedatt--config--google_chat))
 - `msteams` (Attributes) Microsoft Teams incoming webhook (when type = msteams). (see [below for nested schema](#nestedatt--config--msteams))
+- `ntfy` (Attributes) ntfy topic push (when type = ntfy). (see [below for nested schema](#nestedatt--config--ntfy))
+- `pagerduty` (Attributes) PagerDuty Events API v2 (when type = pagerduty). (see [below for nested schema](#nestedatt--config--pagerduty))
+- `pushover` (Attributes) Pushover (when type = pushover). (see [below for nested schema](#nestedatt--config--pushover))
 - `slack` (Attributes) Slack incoming webhook (when type = slack). (see [below for nested schema](#nestedatt--config--slack))
 - `sms` (Attributes) Bring-your-own SMS gateway (when type = sms). Set `provider` and that gateway's credentials; unused fields are ignored. (see [below for nested schema](#nestedatt--config--sms))
 - `telegram` (Attributes) Telegram bot (when type = telegram). (see [below for nested schema](#nestedatt--config--telegram))
 - `webhook` (Attributes) Generic webhook (when type = webhook). (see [below for nested schema](#nestedatt--config--webhook))
+- `whatsapp` (Attributes) WhatsApp Business Cloud API (when type = whatsapp). (see [below for nested schema](#nestedatt--config--whatsapp))
 
 <a id="nestedatt--config--discord"></a>
 ### Nested Schema for `config.discord`
@@ -184,6 +235,41 @@ Required:
 Required:
 
 - `webhook_url` (String, Sensitive) Teams workflow/webhook URL. Write-only.
+
+
+<a id="nestedatt--config--ntfy"></a>
+### Nested Schema for `config.ntfy`
+
+Required:
+
+- `topic` (String) Topic to publish to.
+
+Optional:
+
+- `access_token` (String, Sensitive) Bearer token for protected topics. Write-only.
+- `server_url` (String) ntfy server root. Defaults to https://ntfy.sh.
+
+
+<a id="nestedatt--config--pagerduty"></a>
+### Nested Schema for `config.pagerduty`
+
+Required:
+
+- `routing_key` (String, Sensitive) Events API v2 integration (routing) key. Write-only.
+
+
+<a id="nestedatt--config--pushover"></a>
+### Nested Schema for `config.pushover`
+
+Required:
+
+- `token` (String, Sensitive) Application API token. Write-only.
+- `user` (String, Sensitive) User or group key. Write-only.
+
+Optional:
+
+- `device` (String) Target device name; empty delivers to all devices.
+- `emergency` (Boolean) Send high-urgency alerts at emergency priority (repeat until acknowledged).
 
 
 <a id="nestedatt--config--slack"></a>
@@ -235,6 +321,21 @@ Required:
 Optional:
 
 - `headers` (Map of String, Sensitive) Extra request headers. Write-only values.
+
+
+<a id="nestedatt--config--whatsapp"></a>
+### Nested Schema for `config.whatsapp`
+
+Required:
+
+- `access_token` (String, Sensitive) Cloud API access token. Write-only.
+- `phone_number_id` (String) Business phone number id (numeric).
+- `template_name` (String) Approved template name (lowercase letters, digits, underscore).
+- `to` (String) Recipient phone number in international format.
+
+Optional:
+
+- `language_code` (String) Template language (e.g. en, en_US). Defaults to en.
 
 ## Import
 

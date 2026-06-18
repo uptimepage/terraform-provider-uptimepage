@@ -144,6 +144,68 @@ func TestChannelConfig_RedactionSuppressed(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("pagerduty_routing_key_redacted", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypePagerDuty), PagerDuty: &pagerdutyConfigModel{RoutingKey: types.StringValue("real-key")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypePagerDuty, PagerDuty: &client.PagerDutyConfig{RoutingKey: redactedSentinel}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.PagerDuty.RoutingKey.ValueString() != "real-key" {
+			t.Errorf("routing_key not preserved: %q", got.PagerDuty.RoutingKey.ValueString())
+		}
+	})
+
+	t.Run("ntfy_token_redacted_serverurl_visible", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeNtfy), Ntfy: &ntfyConfigModel{AccessToken: types.StringValue("real-tok")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeNtfy, Ntfy: &client.NtfyConfig{ServerURL: "https://ntfy.sh", Topic: "ops", AccessToken: redactedSentinel}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Ntfy.AccessToken.ValueString() != "real-tok" {
+			t.Errorf("access_token not preserved: %q", got.Ntfy.AccessToken.ValueString())
+		}
+		if got.Ntfy.ServerURL.ValueString() != "https://ntfy.sh" || got.Ntfy.Topic.ValueString() != "ops" {
+			t.Errorf("non-secret ntfy fields should reflect API: %+v", got.Ntfy)
+		}
+	})
+
+	t.Run("pushover_both_keys_redacted_emergency_reflected", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypePushover), Pushover: &pushoverConfigModel{Token: types.StringValue("real-token"), User: types.StringValue("real-user")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypePushover, Pushover: &client.PushoverConfig{Token: redactedSentinel, User: redactedSentinel, Emergency: true}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Pushover.Token.ValueString() != "real-token" || got.Pushover.User.ValueString() != "real-user" {
+			t.Errorf("pushover secrets not preserved: %+v", got.Pushover)
+		}
+		if !got.Pushover.Emergency.ValueBool() {
+			t.Errorf("emergency should reflect API true")
+		}
+	})
+
+	t.Run("whatsapp_token_redacted_rest_visible", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeWhatsApp), WhatsApp: &whatsappConfigModel{AccessToken: types.StringValue("real-tok")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeWhatsApp, WhatsApp: &client.WhatsAppConfig{
+			AccessToken: redactedSentinel, PhoneNumberID: "123", To: "15551234567", TemplateName: "uptime_alert",
+		}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.WhatsApp.AccessToken.ValueString() != "real-tok" {
+			t.Errorf("access_token not preserved: %q", got.WhatsApp.AccessToken.ValueString())
+		}
+		if got.WhatsApp.PhoneNumberID.ValueString() != "123" || got.WhatsApp.To.ValueString() != "15551234567" {
+			t.Errorf("non-secret whatsapp fields should reflect API: %+v", got.WhatsApp)
+		}
+		if !got.WhatsApp.LanguageCode.IsNull() {
+			t.Errorf("absent language_code should be null, got %q", got.WhatsApp.LanguageCode.ValueString())
+		}
+	})
 }
 
 func TestChannelToModel_VerifiedAt(t *testing.T) {
