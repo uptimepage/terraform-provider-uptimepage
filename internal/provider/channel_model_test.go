@@ -109,6 +109,41 @@ func TestChannelConfig_RedactionSuppressed(t *testing.T) {
 			t.Errorf("to (non-secret) should reflect API: %q", got.Email.To.ValueString())
 		}
 	})
+
+	t.Run("sms_keeps_redacted_secret_and_nulls_absent_fields", func(t *testing.T) {
+		prior := channelConfigModel{
+			Type: types.StringValue(client.ChannelTypeSMS),
+			SMS:  &smsConfigModel{AuthToken: types.StringValue("real-token")},
+		}
+		// Twilio read: auth_token redacted, account_sid visible, every other
+		// gateway's field absent from the response.
+		cfg := client.ChannelConfig{Type: client.ChannelTypeSMS, SMS: &client.SMSConfig{
+			Provider: "twilio", To: "+15551234567", From: "+15557654321",
+			AccountSID: "AC0123456789ABCDEF0123456789ABCDEF", AuthToken: redactedSentinel,
+		}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.SMS.AuthToken.ValueString() != "real-token" {
+			t.Errorf("auth_token not preserved: %q", got.SMS.AuthToken.ValueString())
+		}
+		if got.SMS.AccountSID.ValueString() != "AC0123456789ABCDEF0123456789ABCDEF" {
+			t.Errorf("account_sid (non-secret) should reflect API: %q", got.SMS.AccountSID.ValueString())
+		}
+		// Fields another gateway would use must read null, not "", so they
+		// don't show a perpetual diff.
+		for name, v := range map[string]types.String{
+			"api_key": got.SMS.APIKey, "api_secret": got.SMS.APISecret,
+			"auth_id": got.SMS.AuthID, "service_plan_id": got.SMS.ServicePlanID,
+			"api_token": got.SMS.APIToken, "region": got.SMS.Region,
+			"messaging_profile_id": got.SMS.MessagingProfileID,
+		} {
+			if !v.IsNull() {
+				t.Errorf("absent field %q should be null, got %q", name, v.ValueString())
+			}
+		}
+	})
 }
 
 func TestChannelToModel_VerifiedAt(t *testing.T) {

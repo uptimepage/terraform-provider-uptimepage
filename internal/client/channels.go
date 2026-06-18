@@ -18,6 +18,7 @@ const (
 	ChannelTypeMsTeams    = "msteams"
 	ChannelTypeGoogleChat = "google_chat"
 	ChannelTypeEmail      = "email"
+	ChannelTypeSMS        = "sms"
 
 	// Created only by the dashboard's one-tap Telegram linking; the API
 	// rejects it in request bodies, so the provider cannot manage it.
@@ -66,6 +67,7 @@ type ChannelConfig struct {
 	MsTeams    *MsTeamsConfig    `json:"-"`
 	GoogleChat *GoogleChatConfig `json:"-"`
 	Email      *EmailConfig      `json:"-"`
+	SMS        *SMSConfig        `json:"-"`
 }
 
 // WebhookConfig: url and header values are redacted on read.
@@ -105,6 +107,25 @@ type GoogleChatConfig struct {
 // NotificationChannel.VerifiedAt).
 type EmailConfig struct {
 	To string `json:"to"`
+}
+
+// SMSConfig is the bring-your-own SMS gateway config. provider selects the
+// gateway and only that gateway's fields are sent. The gateway secret
+// (auth_token / api_key / api_secret / api_token, depending on provider) is
+// redacted on read; account identifiers and routing are not.
+type SMSConfig struct {
+	Provider           string `json:"provider"`
+	To                 string `json:"to"`
+	From               string `json:"from"`
+	AccountSID         string `json:"account_sid,omitempty"`
+	AuthToken          string `json:"auth_token,omitempty"`
+	APIKey             string `json:"api_key,omitempty"`
+	APISecret          string `json:"api_secret,omitempty"`
+	MessagingProfileID string `json:"messaging_profile_id,omitempty"`
+	AuthID             string `json:"auth_id,omitempty"`
+	ServicePlanID      string `json:"service_plan_id,omitempty"`
+	APIToken           string `json:"api_token,omitempty"`
+	Region             string `json:"region,omitempty"`
 }
 
 func (c ChannelConfig) MarshalJSON() ([]byte, error) {
@@ -165,6 +186,14 @@ func (c ChannelConfig) MarshalJSON() ([]byte, error) {
 			Type string `json:"type"`
 			EmailConfig
 		}{c.Type, *c.Email})
+	case ChannelTypeSMS:
+		if c.SMS == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			SMSConfig
+		}{c.Type, *c.SMS})
 	case "":
 		return nil, fmt.Errorf("channel config has no type")
 	default:
@@ -203,6 +232,9 @@ func (c *ChannelConfig) UnmarshalJSON(data []byte) error {
 	case ChannelTypeEmail:
 		c.Email = new(EmailConfig)
 		return json.Unmarshal(data, c.Email)
+	case ChannelTypeSMS:
+		c.SMS = new(SMSConfig)
+		return json.Unmarshal(data, c.SMS)
 	case channelTypeTelegramApp:
 		return fmt.Errorf("channel type %q is linked through the dashboard's Telegram bot and cannot be managed by Terraform", probe.Type)
 	default:

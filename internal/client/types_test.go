@@ -111,6 +111,10 @@ func TestChannelConfig_VariantsRoundTrip(t *testing.T) {
 		"msteams":     {Type: ChannelTypeMsTeams, MsTeams: &MsTeamsConfig{WebhookURL: "https://contoso.webhook.office.com/x"}},
 		"google_chat": {Type: ChannelTypeGoogleChat, GoogleChat: &GoogleChatConfig{WebhookURL: "https://chat.googleapis.com/v1/spaces/x"}},
 		"email":       {Type: ChannelTypeEmail, Email: &EmailConfig{To: "oncall@example.com"}},
+		"sms": {Type: ChannelTypeSMS, SMS: &SMSConfig{
+			Provider: "twilio", To: "+15551234567", From: "+15557654321",
+			AccountSID: "AC0123456789ABCDEF0123456789ABCDEF", AuthToken: "tok",
+		}},
 	}
 	for name, cfg := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -133,6 +137,33 @@ func TestChannelConfig_VariantsRoundTrip(t *testing.T) {
 				t.Errorf("type round-trip = %q, want %q", back.Type, cfg.Type)
 			}
 		})
+	}
+}
+
+// TestChannelConfig_SMSFlatAndOmitsUnused pins that SMS is internally tagged
+// (provider/to/from beside type, not nested) and that gateway fields the chosen
+// provider doesn't use are omitted rather than sent empty.
+func TestChannelConfig_SMSFlatAndOmitsUnused(t *testing.T) {
+	cfg := ChannelConfig{Type: ChannelTypeSMS, SMS: &SMSConfig{
+		Provider: "telnyx", To: "+15551234567", From: "alerts", APIKey: "KEY123",
+	}}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("to map: %v", err)
+	}
+	for _, k := range []string{"type", "provider", "to", "from", "api_key"} {
+		if _, ok := m[k]; !ok {
+			t.Errorf("missing flat key %q in %s", k, raw)
+		}
+	}
+	for _, k := range []string{"account_sid", "auth_token", "api_secret", "auth_id", "service_plan_id", "api_token", "region", "messaging_profile_id"} {
+		if _, ok := m[k]; ok {
+			t.Errorf("unexpected key %q present for telnyx: %s", k, raw)
+		}
 	}
 }
 

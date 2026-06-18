@@ -31,6 +31,7 @@ type channelConfigModel struct {
 	MsTeams    *msteamsConfigModel    `tfsdk:"msteams"`
 	GoogleChat *googleChatConfigModel `tfsdk:"google_chat"`
 	Email      *emailConfigModel      `tfsdk:"email"`
+	SMS        *smsConfigModel        `tfsdk:"sms"`
 }
 
 type webhookConfigModel struct {
@@ -61,6 +62,21 @@ type googleChatConfigModel struct {
 
 type emailConfigModel struct {
 	To types.String `tfsdk:"to"`
+}
+
+type smsConfigModel struct {
+	Provider           types.String `tfsdk:"provider"`
+	To                 types.String `tfsdk:"to"`
+	From               types.String `tfsdk:"from"`
+	AccountSID         types.String `tfsdk:"account_sid"`
+	AuthToken          types.String `tfsdk:"auth_token"`
+	APIKey             types.String `tfsdk:"api_key"`
+	APISecret          types.String `tfsdk:"api_secret"`
+	MessagingProfileID types.String `tfsdk:"messaging_profile_id"`
+	AuthID             types.String `tfsdk:"auth_id"`
+	ServicePlanID      types.String `tfsdk:"service_plan_id"`
+	APIToken           types.String `tfsdk:"api_token"`
+	Region             types.String `tfsdk:"region"`
 }
 
 func (m channelModel) toNew(ctx context.Context) (client.NewNotificationChannel, diag.Diagnostics) {
@@ -136,6 +152,24 @@ func (c channelConfigModel) toWire(ctx context.Context) (client.ChannelConfig, d
 			return out, missingBlock(kind)
 		}
 		out.Email = &client.EmailConfig{To: c.Email.To.ValueString()}
+	case client.ChannelTypeSMS:
+		if c.SMS == nil {
+			return out, missingBlock(kind)
+		}
+		out.SMS = &client.SMSConfig{
+			Provider:           c.SMS.Provider.ValueString(),
+			To:                 c.SMS.To.ValueString(),
+			From:               c.SMS.From.ValueString(),
+			AccountSID:         c.SMS.AccountSID.ValueString(),
+			AuthToken:          c.SMS.AuthToken.ValueString(),
+			APIKey:             c.SMS.APIKey.ValueString(),
+			APISecret:          c.SMS.APISecret.ValueString(),
+			MessagingProfileID: c.SMS.MessagingProfileID.ValueString(),
+			AuthID:             c.SMS.AuthID.ValueString(),
+			ServicePlanID:      c.SMS.ServicePlanID.ValueString(),
+			APIToken:           c.SMS.APIToken.ValueString(),
+			Region:             c.SMS.Region.ValueString(),
+		}
 	default:
 		diags.AddError("Invalid config", fmt.Sprintf("unsupported channel type %q", kind))
 	}
@@ -210,10 +244,51 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 		out.GoogleChat = &googleChatConfigModel{WebhookURL: keepSecret(priorURL, &cfg.GoogleChat.WebhookURL)}
 	case cfg.Email != nil:
 		out.Email = &emailConfigModel{To: types.StringValue(cfg.Email.To)}
+	case cfg.SMS != nil:
+		pAuth, pKey, pSecret, pToken := types.StringNull(), types.StringNull(), types.StringNull(), types.StringNull()
+		if prior.SMS != nil {
+			pAuth, pKey, pSecret, pToken = prior.SMS.AuthToken, prior.SMS.APIKey, prior.SMS.APISecret, prior.SMS.APIToken
+		}
+		out.SMS = &smsConfigModel{
+			Provider:           types.StringValue(cfg.SMS.Provider),
+			To:                 types.StringValue(cfg.SMS.To),
+			From:               types.StringValue(cfg.SMS.From),
+			AccountSID:         smsOptString(cfg.SMS.AccountSID),
+			AuthToken:          smsSecret(pAuth, cfg.SMS.AuthToken),
+			APIKey:             smsSecret(pKey, cfg.SMS.APIKey),
+			APISecret:          smsSecret(pSecret, cfg.SMS.APISecret),
+			MessagingProfileID: smsOptString(cfg.SMS.MessagingProfileID),
+			AuthID:             smsOptString(cfg.SMS.AuthID),
+			ServicePlanID:      smsOptString(cfg.SMS.ServicePlanID),
+			APIToken:           smsSecret(pToken, cfg.SMS.APIToken),
+			Region:             smsOptString(cfg.SMS.Region),
+		}
 	default:
 		diags.AddError("Unsupported channel type", fmt.Sprintf("channel type %q has no config", cfg.Type))
 	}
 	return out, diags
+}
+
+// smsOptString maps an absent flat SMS field ("") to null so a gateway that
+// doesn't use it shows no perpetual empty-string diff.
+func smsOptString(got string) types.String {
+	if got == "" {
+		return types.StringNull()
+	}
+	return types.StringValue(got)
+}
+
+// smsSecret keeps the prior write-only value when the API redacts it, maps an
+// absent field to null, else reflects the response.
+func smsSecret(prior types.String, got string) types.String {
+	switch got {
+	case "":
+		return types.StringNull()
+	case redactedSentinel:
+		return prior
+	default:
+		return types.StringValue(got)
+	}
 }
 
 // keepHeaders preserves prior header state when the API redacts the values

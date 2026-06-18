@@ -54,6 +54,37 @@ resource "uptimepage_notification_channel" "email" {
   # verification mail; verified_at flips from null once they do.
 }
 
+# Bring-your-own SMS gateway. Set provider and that gateway's credentials.
+resource "uptimepage_notification_channel" "sms_twilio" {
+  name = "oncall sms"
+  config = {
+    type = "sms"
+    sms = {
+      provider    = "twilio"
+      to          = "+15551234567"
+      from        = "+15557654321"
+      account_sid = var.twilio_account_sid
+      auth_token  = var.twilio_auth_token
+    }
+  }
+}
+
+# Sinch is region-routed: region selects the API cluster your account lives in.
+resource "uptimepage_notification_channel" "sms_sinch" {
+  name = "oncall sms eu"
+  config = {
+    type = "sms"
+    sms = {
+      provider        = "sinch"
+      to              = "+15551234567"
+      from            = "Acme"
+      service_plan_id = var.sinch_service_plan_id
+      api_token       = var.sinch_api_token
+      region          = "eu"
+    }
+  }
+}
+
 # Reference a channel from a target's alert binding.
 resource "uptimepage_target" "api" {
   name     = "api"

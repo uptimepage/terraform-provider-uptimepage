@@ -3,12 +3,12 @@
 page_title: "uptimepage_notification_channel Resource - uptimepage"
 subcategory: ""
 description: |-
-  A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, or email).
+  A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, or SMS).
 ---
 
 # uptimepage_notification_channel (Resource)
 
-A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, or email).
+A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, or SMS).
 
 ## Example Usage
 
@@ -69,6 +69,37 @@ resource "uptimepage_notification_channel" "email" {
   # verification mail; verified_at flips from null once they do.
 }
 
+# Bring-your-own SMS gateway. Set provider and that gateway's credentials.
+resource "uptimepage_notification_channel" "sms_twilio" {
+  name = "oncall sms"
+  config = {
+    type = "sms"
+    sms = {
+      provider    = "twilio"
+      to          = "+15551234567"
+      from        = "+15557654321"
+      account_sid = var.twilio_account_sid
+      auth_token  = var.twilio_auth_token
+    }
+  }
+}
+
+# Sinch is region-routed: region selects the API cluster your account lives in.
+resource "uptimepage_notification_channel" "sms_sinch" {
+  name = "oncall sms eu"
+  config = {
+    type = "sms"
+    sms = {
+      provider        = "sinch"
+      to              = "+15551234567"
+      from            = "Acme"
+      service_plan_id = var.sinch_service_plan_id
+      api_token       = var.sinch_api_token
+      region          = "eu"
+    }
+  }
+}
+
 # Reference a channel from a target's alert binding.
 resource "uptimepage_target" "api" {
   name     = "api"
@@ -110,7 +141,7 @@ resource "uptimepage_target" "api" {
 
 Required:
 
-- `type` (String) Channel type: webhook, slack, telegram, discord, msteams, google_chat, email. The dashboard's one-tap telegram_app kind is not manageable here.
+- `type` (String) Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, sms. The dashboard's one-tap telegram_app kind is not manageable here.
 
 Optional:
 
@@ -119,6 +150,7 @@ Optional:
 - `google_chat` (Attributes) Google Chat space webhook (when type = google_chat). (see [below for nested schema](#nestedatt--config--google_chat))
 - `msteams` (Attributes) Microsoft Teams incoming webhook (when type = msteams). (see [below for nested schema](#nestedatt--config--msteams))
 - `slack` (Attributes) Slack incoming webhook (when type = slack). (see [below for nested schema](#nestedatt--config--slack))
+- `sms` (Attributes) Bring-your-own SMS gateway (when type = sms). Set `provider` and that gateway's credentials; unused fields are ignored. (see [below for nested schema](#nestedatt--config--sms))
 - `telegram` (Attributes) Telegram bot (when type = telegram). (see [below for nested schema](#nestedatt--config--telegram))
 - `webhook` (Attributes) Generic webhook (when type = webhook). (see [below for nested schema](#nestedatt--config--webhook))
 
@@ -160,6 +192,28 @@ Required:
 Required:
 
 - `webhook_url` (String, Sensitive) Slack webhook URL. Write-only.
+
+
+<a id="nestedatt--config--sms"></a>
+### Nested Schema for `config.sms`
+
+Required:
+
+- `from` (String) Sender: an E.164 number, alphanumeric sender id, or messaging-service id.
+- `provider` (String) SMS gateway: twilio, telnyx, vonage, plivo, sinch.
+- `to` (String) Recipient phone number in E.164 format (e.g. +15551234567).
+
+Optional:
+
+- `account_sid` (String) Twilio Account SID (provider = twilio).
+- `api_key` (String, Sensitive) Telnyx/Vonage API key (provider = telnyx or vonage). Write-only.
+- `api_secret` (String, Sensitive) Vonage API secret (provider = vonage). Write-only.
+- `api_token` (String, Sensitive) Sinch API token (provider = sinch). Write-only.
+- `auth_id` (String) Plivo Auth ID (provider = plivo).
+- `auth_token` (String, Sensitive) Twilio/Plivo auth token (provider = twilio or plivo). Write-only.
+- `messaging_profile_id` (String) Telnyx messaging profile id (provider = telnyx, optional).
+- `region` (String) Sinch cluster region (provider = sinch): us, eu, au, br, ca. Defaults to us.
+- `service_plan_id` (String) Sinch service plan id (provider = sinch).
 
 
 <a id="nestedatt--config--telegram"></a>
