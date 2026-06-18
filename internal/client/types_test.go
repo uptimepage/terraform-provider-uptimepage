@@ -111,6 +111,10 @@ func TestChannelConfig_VariantsRoundTrip(t *testing.T) {
 		"msteams":     {Type: ChannelTypeMsTeams, MsTeams: &MsTeamsConfig{WebhookURL: "https://contoso.webhook.office.com/x"}},
 		"google_chat": {Type: ChannelTypeGoogleChat, GoogleChat: &GoogleChatConfig{WebhookURL: "https://chat.googleapis.com/v1/spaces/x"}},
 		"email":       {Type: ChannelTypeEmail, Email: &EmailConfig{To: "oncall@example.com"}},
+		"pagerduty":   {Type: ChannelTypePagerDuty, PagerDuty: &PagerDutyConfig{RoutingKey: "R0123456789abcdef0123456789abcde"}},
+		"ntfy":        {Type: ChannelTypeNtfy, Ntfy: &NtfyConfig{ServerURL: "https://ntfy.sh", Topic: "uptime-alerts", AccessToken: "tk_x"}},
+		"pushover":    {Type: ChannelTypePushover, Pushover: &PushoverConfig{Token: "azGDORePK8gMaC0QOYAMyEEuzJnyUi", User: "uQiRzpo4DXghDmr9QzzfQu27cmVRsG", Emergency: true}},
+		"whatsapp":    {Type: ChannelTypeWhatsApp, WhatsApp: &WhatsAppConfig{AccessToken: "EAAG", PhoneNumberID: "123", To: "15551234567", TemplateName: "uptime_alert"}},
 		"sms": {Type: ChannelTypeSMS, SMS: &SMSConfig{
 			Provider: "twilio", To: "+15551234567", From: "+15557654321",
 			AccountSID: "AC0123456789ABCDEF0123456789ABCDEF", AuthToken: "tok",

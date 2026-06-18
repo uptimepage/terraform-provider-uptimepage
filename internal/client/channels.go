@@ -18,6 +18,10 @@ const (
 	ChannelTypeMsTeams    = "msteams"
 	ChannelTypeGoogleChat = "google_chat"
 	ChannelTypeEmail      = "email"
+	ChannelTypePagerDuty  = "pagerduty"
+	ChannelTypeNtfy       = "ntfy"
+	ChannelTypePushover   = "pushover"
+	ChannelTypeWhatsApp   = "whatsapp"
 	ChannelTypeSMS        = "sms"
 
 	// Created only by the dashboard's one-tap Telegram linking; the API
@@ -67,6 +71,10 @@ type ChannelConfig struct {
 	MsTeams    *MsTeamsConfig    `json:"-"`
 	GoogleChat *GoogleChatConfig `json:"-"`
 	Email      *EmailConfig      `json:"-"`
+	PagerDuty  *PagerDutyConfig  `json:"-"`
+	Ntfy       *NtfyConfig       `json:"-"`
+	Pushover   *PushoverConfig   `json:"-"`
+	WhatsApp   *WhatsAppConfig   `json:"-"`
 	SMS        *SMSConfig        `json:"-"`
 }
 
@@ -107,6 +115,38 @@ type GoogleChatConfig struct {
 // NotificationChannel.VerifiedAt).
 type EmailConfig struct {
 	To string `json:"to"`
+}
+
+// PagerDutyConfig: routing_key (Events API v2 integration key) is redacted on read.
+type PagerDutyConfig struct {
+	RoutingKey string `json:"routing_key"`
+}
+
+// NtfyConfig: access_token is redacted on read. server_url defaults to
+// https://ntfy.sh server-side when omitted; topic is required.
+type NtfyConfig struct {
+	ServerURL   string `json:"server_url,omitempty"`
+	Topic       string `json:"topic"`
+	AccessToken string `json:"access_token,omitempty"`
+}
+
+// PushoverConfig: token and user are both redacted on read. device is optional;
+// emergency defaults false server-side.
+type PushoverConfig struct {
+	Token     string `json:"token"`
+	User      string `json:"user"`
+	Device    string `json:"device,omitempty"`
+	Emergency bool   `json:"emergency"`
+}
+
+// WhatsAppConfig (Business Cloud API): access_token is redacted on read.
+// language_code is optional (defaults to en at send time).
+type WhatsAppConfig struct {
+	AccessToken   string `json:"access_token"`
+	PhoneNumberID string `json:"phone_number_id"`
+	To            string `json:"to"`
+	TemplateName  string `json:"template_name"`
+	LanguageCode  string `json:"language_code,omitempty"`
 }
 
 // SMSConfig is the bring-your-own SMS gateway config. provider selects the
@@ -186,6 +226,38 @@ func (c ChannelConfig) MarshalJSON() ([]byte, error) {
 			Type string `json:"type"`
 			EmailConfig
 		}{c.Type, *c.Email})
+	case ChannelTypePagerDuty:
+		if c.PagerDuty == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			PagerDutyConfig
+		}{c.Type, *c.PagerDuty})
+	case ChannelTypeNtfy:
+		if c.Ntfy == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			NtfyConfig
+		}{c.Type, *c.Ntfy})
+	case ChannelTypePushover:
+		if c.Pushover == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			PushoverConfig
+		}{c.Type, *c.Pushover})
+	case ChannelTypeWhatsApp:
+		if c.WhatsApp == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			WhatsAppConfig
+		}{c.Type, *c.WhatsApp})
 	case ChannelTypeSMS:
 		if c.SMS == nil {
 			return nil, errNilPayload(c.Type)
@@ -232,6 +304,18 @@ func (c *ChannelConfig) UnmarshalJSON(data []byte) error {
 	case ChannelTypeEmail:
 		c.Email = new(EmailConfig)
 		return json.Unmarshal(data, c.Email)
+	case ChannelTypePagerDuty:
+		c.PagerDuty = new(PagerDutyConfig)
+		return json.Unmarshal(data, c.PagerDuty)
+	case ChannelTypeNtfy:
+		c.Ntfy = new(NtfyConfig)
+		return json.Unmarshal(data, c.Ntfy)
+	case ChannelTypePushover:
+		c.Pushover = new(PushoverConfig)
+		return json.Unmarshal(data, c.Pushover)
+	case ChannelTypeWhatsApp:
+		c.WhatsApp = new(WhatsAppConfig)
+		return json.Unmarshal(data, c.WhatsApp)
 	case ChannelTypeSMS:
 		c.SMS = new(SMSConfig)
 		return json.Unmarshal(data, c.SMS)

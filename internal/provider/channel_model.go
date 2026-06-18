@@ -31,6 +31,10 @@ type channelConfigModel struct {
 	MsTeams    *msteamsConfigModel    `tfsdk:"msteams"`
 	GoogleChat *googleChatConfigModel `tfsdk:"google_chat"`
 	Email      *emailConfigModel      `tfsdk:"email"`
+	PagerDuty  *pagerdutyConfigModel  `tfsdk:"pagerduty"`
+	Ntfy       *ntfyConfigModel       `tfsdk:"ntfy"`
+	Pushover   *pushoverConfigModel   `tfsdk:"pushover"`
+	WhatsApp   *whatsappConfigModel   `tfsdk:"whatsapp"`
 	SMS        *smsConfigModel        `tfsdk:"sms"`
 }
 
@@ -62,6 +66,31 @@ type googleChatConfigModel struct {
 
 type emailConfigModel struct {
 	To types.String `tfsdk:"to"`
+}
+
+type pagerdutyConfigModel struct {
+	RoutingKey types.String `tfsdk:"routing_key"`
+}
+
+type ntfyConfigModel struct {
+	ServerURL   types.String `tfsdk:"server_url"`
+	Topic       types.String `tfsdk:"topic"`
+	AccessToken types.String `tfsdk:"access_token"`
+}
+
+type pushoverConfigModel struct {
+	Token     types.String `tfsdk:"token"`
+	User      types.String `tfsdk:"user"`
+	Device    types.String `tfsdk:"device"`
+	Emergency types.Bool   `tfsdk:"emergency"`
+}
+
+type whatsappConfigModel struct {
+	AccessToken   types.String `tfsdk:"access_token"`
+	PhoneNumberID types.String `tfsdk:"phone_number_id"`
+	To            types.String `tfsdk:"to"`
+	TemplateName  types.String `tfsdk:"template_name"`
+	LanguageCode  types.String `tfsdk:"language_code"`
 }
 
 type smsConfigModel struct {
@@ -152,6 +181,41 @@ func (c channelConfigModel) toWire(ctx context.Context) (client.ChannelConfig, d
 			return out, missingBlock(kind)
 		}
 		out.Email = &client.EmailConfig{To: c.Email.To.ValueString()}
+	case client.ChannelTypePagerDuty:
+		if c.PagerDuty == nil {
+			return out, missingBlock(kind)
+		}
+		out.PagerDuty = &client.PagerDutyConfig{RoutingKey: c.PagerDuty.RoutingKey.ValueString()}
+	case client.ChannelTypeNtfy:
+		if c.Ntfy == nil {
+			return out, missingBlock(kind)
+		}
+		out.Ntfy = &client.NtfyConfig{
+			ServerURL:   c.Ntfy.ServerURL.ValueString(),
+			Topic:       c.Ntfy.Topic.ValueString(),
+			AccessToken: c.Ntfy.AccessToken.ValueString(),
+		}
+	case client.ChannelTypePushover:
+		if c.Pushover == nil {
+			return out, missingBlock(kind)
+		}
+		out.Pushover = &client.PushoverConfig{
+			Token:     c.Pushover.Token.ValueString(),
+			User:      c.Pushover.User.ValueString(),
+			Device:    c.Pushover.Device.ValueString(),
+			Emergency: c.Pushover.Emergency.ValueBool(),
+		}
+	case client.ChannelTypeWhatsApp:
+		if c.WhatsApp == nil {
+			return out, missingBlock(kind)
+		}
+		out.WhatsApp = &client.WhatsAppConfig{
+			AccessToken:   c.WhatsApp.AccessToken.ValueString(),
+			PhoneNumberID: c.WhatsApp.PhoneNumberID.ValueString(),
+			To:            c.WhatsApp.To.ValueString(),
+			TemplateName:  c.WhatsApp.TemplateName.ValueString(),
+			LanguageCode:  c.WhatsApp.LanguageCode.ValueString(),
+		}
 	case client.ChannelTypeSMS:
 		if c.SMS == nil {
 			return out, missingBlock(kind)
@@ -244,6 +308,45 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 		out.GoogleChat = &googleChatConfigModel{WebhookURL: keepSecret(priorURL, &cfg.GoogleChat.WebhookURL)}
 	case cfg.Email != nil:
 		out.Email = &emailConfigModel{To: types.StringValue(cfg.Email.To)}
+	case cfg.PagerDuty != nil:
+		priorKey := types.StringNull()
+		if prior.PagerDuty != nil {
+			priorKey = prior.PagerDuty.RoutingKey
+		}
+		out.PagerDuty = &pagerdutyConfigModel{RoutingKey: secretOrNull(priorKey, cfg.PagerDuty.RoutingKey)}
+	case cfg.Ntfy != nil:
+		priorToken := types.StringNull()
+		if prior.Ntfy != nil {
+			priorToken = prior.Ntfy.AccessToken
+		}
+		out.Ntfy = &ntfyConfigModel{
+			ServerURL:   types.StringValue(cfg.Ntfy.ServerURL),
+			Topic:       types.StringValue(cfg.Ntfy.Topic),
+			AccessToken: secretOrNull(priorToken, cfg.Ntfy.AccessToken),
+		}
+	case cfg.Pushover != nil:
+		priorTok, priorUser := types.StringNull(), types.StringNull()
+		if prior.Pushover != nil {
+			priorTok, priorUser = prior.Pushover.Token, prior.Pushover.User
+		}
+		out.Pushover = &pushoverConfigModel{
+			Token:     secretOrNull(priorTok, cfg.Pushover.Token),
+			User:      secretOrNull(priorUser, cfg.Pushover.User),
+			Device:    optStringOrNull(cfg.Pushover.Device),
+			Emergency: types.BoolValue(cfg.Pushover.Emergency),
+		}
+	case cfg.WhatsApp != nil:
+		priorToken := types.StringNull()
+		if prior.WhatsApp != nil {
+			priorToken = prior.WhatsApp.AccessToken
+		}
+		out.WhatsApp = &whatsappConfigModel{
+			AccessToken:   secretOrNull(priorToken, cfg.WhatsApp.AccessToken),
+			PhoneNumberID: types.StringValue(cfg.WhatsApp.PhoneNumberID),
+			To:            types.StringValue(cfg.WhatsApp.To),
+			TemplateName:  types.StringValue(cfg.WhatsApp.TemplateName),
+			LanguageCode:  optStringOrNull(cfg.WhatsApp.LanguageCode),
+		}
 	case cfg.SMS != nil:
 		pAuth, pKey, pSecret, pToken := types.StringNull(), types.StringNull(), types.StringNull(), types.StringNull()
 		if prior.SMS != nil {
@@ -253,15 +356,15 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 			Provider:           types.StringValue(cfg.SMS.Provider),
 			To:                 types.StringValue(cfg.SMS.To),
 			From:               types.StringValue(cfg.SMS.From),
-			AccountSID:         smsOptString(cfg.SMS.AccountSID),
-			AuthToken:          smsSecret(pAuth, cfg.SMS.AuthToken),
-			APIKey:             smsSecret(pKey, cfg.SMS.APIKey),
-			APISecret:          smsSecret(pSecret, cfg.SMS.APISecret),
-			MessagingProfileID: smsOptString(cfg.SMS.MessagingProfileID),
-			AuthID:             smsOptString(cfg.SMS.AuthID),
-			ServicePlanID:      smsOptString(cfg.SMS.ServicePlanID),
-			APIToken:           smsSecret(pToken, cfg.SMS.APIToken),
-			Region:             smsOptString(cfg.SMS.Region),
+			AccountSID:         optStringOrNull(cfg.SMS.AccountSID),
+			AuthToken:          secretOrNull(pAuth, cfg.SMS.AuthToken),
+			APIKey:             secretOrNull(pKey, cfg.SMS.APIKey),
+			APISecret:          secretOrNull(pSecret, cfg.SMS.APISecret),
+			MessagingProfileID: optStringOrNull(cfg.SMS.MessagingProfileID),
+			AuthID:             optStringOrNull(cfg.SMS.AuthID),
+			ServicePlanID:      optStringOrNull(cfg.SMS.ServicePlanID),
+			APIToken:           secretOrNull(pToken, cfg.SMS.APIToken),
+			Region:             optStringOrNull(cfg.SMS.Region),
 		}
 	default:
 		diags.AddError("Unsupported channel type", fmt.Sprintf("channel type %q has no config", cfg.Type))
@@ -269,18 +372,18 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 	return out, diags
 }
 
-// smsOptString maps an absent flat SMS field ("") to null so a gateway that
-// doesn't use it shows no perpetual empty-string diff.
-func smsOptString(got string) types.String {
+// optStringOrNull maps an absent optional field ("") to null so a config that
+// doesn't carry it shows no perpetual empty-string diff.
+func optStringOrNull(got string) types.String {
 	if got == "" {
 		return types.StringNull()
 	}
 	return types.StringValue(got)
 }
 
-// smsSecret keeps the prior write-only value when the API redacts it, maps an
+// secretOrNull keeps the prior write-only value when the API redacts it, maps an
 // absent field to null, else reflects the response.
-func smsSecret(prior types.String, got string) types.String {
+func secretOrNull(prior types.String, got string) types.String {
 	switch got {
 	case "":
 		return types.StringNull()
