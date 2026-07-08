@@ -2,12 +2,14 @@ package provider
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/setvalidator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -147,10 +149,10 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:    true,
-						Description: "Check type: http, tcp, tls_cert, domain_expiry, dns.",
+						Description: "Check type: http, tcp, tls_cert, domain_expiry, dns, flow.",
 						Validators: []validator.String{stringvalidator.OneOf(
 							client.CheckTypeHTTP, client.CheckTypeTCP, client.CheckTypeTLSCert,
-							client.CheckTypeDomainExpiry, client.CheckTypeDNS)},
+							client.CheckTypeDomainExpiry, client.CheckTypeDNS, client.CheckTypeFlow)},
 					},
 					"http": schema.SingleNestedAttribute{
 						Optional:    true,
@@ -161,6 +163,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 					"tls_cert":      tlsCertCheckAttribute(),
 					"domain_expiry": domainExpiryCheckAttribute(),
 					"dns":           dnsCheckAttribute(),
+					"flow":          flowCheckAttribute(),
 				},
 			},
 		},
@@ -354,6 +357,71 @@ func dnsCheckAttribute() schema.Attribute {
 	}
 }
 
+func flowCheckAttribute() schema.Attribute {
+	return schema.SingleNestedAttribute{
+		Optional:    true,
+		Description: "Browser login/transaction flow check (when type = flow). Runs only where a browser engine is available, so its regions clamp to the flow-capable set.",
+		Attributes: map[string]schema.Attribute{
+			"start_url": schema.StringAttribute{
+				Required:    true,
+				Description: "URL the browser opens before running the steps.",
+			},
+			"steps": schema.ListNestedAttribute{
+				Required:    true,
+				Description: "Ordered browser actions. Include at least one assert_* step so a broken flow fails.",
+				Validators:  []validator.List{listvalidator.SizeBetween(1, 30)},
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"op": schema.StringAttribute{
+							Required:    true,
+							Description: "Action: goto, click, fill, wait_for, assert_text, assert_url.",
+							Validators: []validator.String{stringvalidator.OneOf(
+								client.FlowOpGoto, client.FlowOpClick, client.FlowOpFill,
+								client.FlowOpWaitFor, client.FlowOpAssertText, client.FlowOpAssertURL)},
+						},
+						"url": schema.StringAttribute{
+							Optional:    true,
+							Description: "Navigation URL (op = goto).",
+						},
+						"selector": schema.StringAttribute{
+							Optional:    true,
+							Description: "CSS selector (op = click, fill, wait_for, or optionally assert_text).",
+						},
+						"value": schema.StringAttribute{
+							Optional:    true,
+							Sensitive:   true,
+							Description: "Text to fill (op = fill). Write-only: the API redacts it on read, so external changes are not detected. Reference an org secret as {{name}} for credentials.",
+						},
+						"contains": schema.StringAttribute{
+							Optional:    true,
+							Description: "Substring to assert (op = assert_text or assert_url).",
+						},
+					},
+				},
+			},
+			"timeout_ms": schema.Int64Attribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     int64default.StaticInt64(30000),
+				Description: "Whole-flow timeout in milliseconds (1000..120000).",
+				Validators:  []validator.Int64{int64validator.Between(1000, 120000)},
+			},
+			"step_timeout_ms": schema.Int64Attribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     int64default.StaticInt64(5000),
+				Description: "Per-step wait for a selector in milliseconds (100..60000).",
+				Validators:  []validator.Int64{int64validator.Between(100, 60000)},
+			},
+			"verify_tls": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  booldefault.StaticBool(true),
+			},
+		},
+	}
+}
+
 func (r *targetResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan targetModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -530,5 +598,45 @@ func (r *targetResource) ValidateConfig(ctx context.Context, req resource.Valida
 		client.CheckTypeTLSCert:      cfg.Check.TLSCert != nil,
 		client.CheckTypeDomainExpiry: cfg.Check.DomainExpiry != nil,
 		client.CheckTypeDNS:          cfg.Check.DNS != nil,
+		client.CheckTypeFlow:         cfg.Check.Flow != nil,
 	}, &resp.Diagnostics)
+
+	if cfg.Check.Type.ValueString() == client.CheckTypeFlow && cfg.Check.Flow != nil {
+		validateFlowSteps(cfg.Check.Flow.Steps, &resp.Diagnostics)
+	}
+}
+
+// validateFlowSteps enforces that each step carries the fields its op needs, so
+// an omitted field is a plan-time error rather than an empty string sent to the
+// server (which for a shared field would also perpetually diff against the null
+// config). Unknown values are left for apply-time, when they resolve.
+func validateFlowSteps(steps []flowStepModel, diags *diag.Diagnostics) {
+	stepsPath := path.Root("check").AtName("flow").AtName("steps")
+	for i, s := range steps {
+		if s.Op.IsUnknown() || s.Op.IsNull() {
+			continue
+		}
+		op := s.Op.ValueString()
+		at := stepsPath.AtListIndex(i)
+		need := func(field string, v types.String, allowEmpty bool) {
+			if v.IsUnknown() {
+				return
+			}
+			if v.IsNull() || (!allowEmpty && v.ValueString() == "") {
+				diags.AddAttributeError(at.AtName(field), "Missing flow step field",
+					fmt.Sprintf("op = %q requires %q.", op, field))
+			}
+		}
+		switch op {
+		case client.FlowOpGoto:
+			need("url", s.URL, false)
+		case client.FlowOpClick, client.FlowOpWaitFor:
+			need("selector", s.Selector, false)
+		case client.FlowOpFill:
+			need("selector", s.Selector, false)
+			need("value", s.Value, true) // an explicit empty fill is allowed
+		case client.FlowOpAssertText, client.FlowOpAssertURL:
+			need("contains", s.Contains, false)
+		}
+	}
 }

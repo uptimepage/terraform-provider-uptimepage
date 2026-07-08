@@ -42,6 +42,7 @@ type checkModel struct {
 	TLSCert      *tlsCertCheckModel `tfsdk:"tls_cert"`
 	DomainExpiry *domainExpiryModel `tfsdk:"domain_expiry"`
 	DNS          *dnsCheckModel     `tfsdk:"dns"`
+	Flow         *flowCheckModel    `tfsdk:"flow"`
 }
 
 type httpCheckModel struct {
@@ -87,6 +88,22 @@ type dnsCheckModel struct {
 	Resolver         types.String `tfsdk:"resolver"`
 	ExpectedContains types.String `tfsdk:"expected_contains"`
 	TimeoutMs        types.Int64  `tfsdk:"timeout_ms"`
+}
+
+type flowCheckModel struct {
+	StartURL      types.String    `tfsdk:"start_url"`
+	Steps         []flowStepModel `tfsdk:"steps"`
+	TimeoutMs     types.Int64     `tfsdk:"timeout_ms"`
+	StepTimeoutMs types.Int64     `tfsdk:"step_timeout_ms"`
+	VerifyTLS     types.Bool      `tfsdk:"verify_tls"`
+}
+
+type flowStepModel struct {
+	Op       types.String `tfsdk:"op"`
+	URL      types.String `tfsdk:"url"`
+	Selector types.String `tfsdk:"selector"`
+	Value    types.String `tfsdk:"value"`
+	Contains types.String `tfsdk:"contains"`
 }
 
 type expectedStatusModel struct {
@@ -239,10 +256,57 @@ func (c checkModel) toWire(ctx context.Context) (client.CheckSpec, diag.Diagnost
 			ExpectedContains: optString(c.DNS.ExpectedContains),
 			Timeout:          uint64(c.DNS.TimeoutMs.ValueInt64()),
 		}
+	case client.CheckTypeFlow:
+		if c.Flow == nil {
+			return out, missingBlock(kind)
+		}
+		out.Flow, diags = c.Flow.toWire()
 	default:
 		diags.AddError("Invalid check", fmt.Sprintf("unsupported check type %q", kind))
 	}
 	return out, diags
+}
+
+func (f flowCheckModel) toWire() (*client.FlowCheck, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	steps := make([]client.FlowStep, 0, len(f.Steps))
+	for i, s := range f.Steps {
+		step, d := s.toWire(i)
+		diags.Append(d...)
+		steps = append(steps, step)
+	}
+	return &client.FlowCheck{
+		StartURL:    f.StartURL.ValueString(),
+		Steps:       steps,
+		Timeout:     uint64(f.TimeoutMs.ValueInt64()),
+		StepTimeout: uint64(f.StepTimeoutMs.ValueInt64()),
+		VerifyTLS:   f.VerifyTLS.ValueBool(),
+	}, diags
+}
+
+// toWire builds the wire step for the model's op, reading only the fields that op
+// uses so stray config on the wrong field never reaches the server.
+func (s flowStepModel) toWire(i int) (client.FlowStep, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	op := s.Op.ValueString()
+	step := client.FlowStep{Op: op}
+	switch op {
+	case client.FlowOpGoto:
+		step.URL = s.URL.ValueString()
+	case client.FlowOpClick, client.FlowOpWaitFor:
+		step.Selector = optString(s.Selector)
+	case client.FlowOpFill:
+		step.Selector = optString(s.Selector)
+		step.Value = s.Value.ValueString()
+	case client.FlowOpAssertText:
+		step.Selector = optString(s.Selector)
+		step.Contains = s.Contains.ValueString()
+	case client.FlowOpAssertURL:
+		step.Contains = s.Contains.ValueString()
+	default:
+		diags.AddError("Invalid flow step", fmt.Sprintf("step %d: unsupported op %q", i, op))
+	}
+	return step, diags
 }
 
 func (h httpCheckModel) toWire(ctx context.Context) (*client.HTTPCheck, diag.Diagnostics) {
@@ -385,10 +449,64 @@ func checkToModel(ctx context.Context, prior checkModel, spec client.CheckSpec) 
 			ExpectedContains: fromOptString(spec.DNS.ExpectedContains),
 			TimeoutMs:        types.Int64Value(int64(spec.DNS.Timeout)),
 		}
+	case spec.Flow != nil:
+		out.Flow = flowToModel(prior.Flow, spec.Flow)
 	default:
 		diags.AddError("Unsupported check type", fmt.Sprintf("check type %q has no payload", spec.Type))
 	}
 	return out, diags
+}
+
+func flowToModel(prior *flowCheckModel, f *client.FlowCheck) *flowCheckModel {
+	out := &flowCheckModel{
+		StartURL:      types.StringValue(f.StartURL),
+		TimeoutMs:     types.Int64Value(int64(f.Timeout)),
+		StepTimeoutMs: types.Int64Value(int64(f.StepTimeout)),
+		VerifyTLS:     types.BoolValue(f.VerifyTLS),
+	}
+	out.Steps = make([]flowStepModel, len(f.Steps))
+	for i, s := range f.Steps {
+		// Steps keep their order across the API, so a fill's redacted value
+		// carries forward from the prior step at the same index.
+		var priorStep *flowStepModel
+		if prior != nil && i < len(prior.Steps) {
+			priorStep = &prior.Steps[i]
+		}
+		out.Steps[i] = flowStepToModel(priorStep, s)
+	}
+	return out
+}
+
+// flowStepToModel sets only the fields the op uses, leaving the rest null so a
+// read-back matches config that omitted them.
+func flowStepToModel(prior *flowStepModel, s client.FlowStep) flowStepModel {
+	m := flowStepModel{
+		Op:       types.StringValue(s.Op),
+		URL:      types.StringNull(),
+		Selector: types.StringNull(),
+		Value:    types.StringNull(),
+		Contains: types.StringNull(),
+	}
+	switch s.Op {
+	case client.FlowOpGoto:
+		m.URL = types.StringValue(s.URL)
+	case client.FlowOpClick, client.FlowOpWaitFor:
+		m.Selector = fromOptString(s.Selector)
+	case client.FlowOpFill:
+		m.Selector = fromOptString(s.Selector)
+		priorVal := types.StringNull()
+		if prior != nil {
+			priorVal = prior.Value
+		}
+		// The API redacts a fill value to "***" on read; trust prior state.
+		m.Value = keepSecret(priorVal, &s.Value)
+	case client.FlowOpAssertText:
+		m.Selector = fromOptString(s.Selector)
+		m.Contains = types.StringValue(s.Contains)
+	case client.FlowOpAssertURL:
+		m.Contains = types.StringValue(s.Contains)
+	}
+	return m
 }
 
 func httpToModel(ctx context.Context, prior *httpCheckModel, h *client.HTTPCheck) (*httpCheckModel, diag.Diagnostics) {

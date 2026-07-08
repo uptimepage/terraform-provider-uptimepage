@@ -119,6 +119,100 @@ type DNSCheck struct {
 	Timeout          uint64  `json:"timeout"` // milliseconds
 }
 
+// FlowCheck drives a headless browser through Steps starting at StartURL, so it
+// verifies a login/transaction session rather than a single request.
+type FlowCheck struct {
+	StartURL    string     `json:"start_url"`
+	Steps       []FlowStep `json:"steps"`
+	Timeout     uint64     `json:"timeout"`      // milliseconds
+	StepTimeout uint64     `json:"step_timeout"` // milliseconds
+	VerifyTLS   bool       `json:"verify_tls"`
+}
+
+// FlowStep is one action in a FlowCheck, internally tagged by "op" with only the
+// fields that op uses. A fill value comes back "***" on read; the provider keeps
+// prior state for it.
+type FlowStep struct {
+	Op       string
+	URL      string  // goto
+	Selector *string // click / fill / wait_for; optional for assert_text
+	Value    string  // fill
+	Contains string  // assert_text / assert_url
+}
+
+const (
+	FlowOpGoto       = "goto"
+	FlowOpClick      = "click"
+	FlowOpFill       = "fill"
+	FlowOpWaitFor    = "wait_for"
+	FlowOpAssertText = "assert_text"
+	FlowOpAssertURL  = "assert_url"
+)
+
+func (s FlowStep) MarshalJSON() ([]byte, error) {
+	switch s.Op {
+	case FlowOpGoto:
+		return json.Marshal(struct {
+			Op  string `json:"op"`
+			URL string `json:"url"`
+		}{s.Op, s.URL})
+	case FlowOpClick, FlowOpWaitFor:
+		return json.Marshal(struct {
+			Op       string `json:"op"`
+			Selector string `json:"selector"`
+		}{s.Op, strDeref(s.Selector)})
+	case FlowOpFill:
+		return json.Marshal(struct {
+			Op       string `json:"op"`
+			Selector string `json:"selector"`
+			Value    string `json:"value"`
+		}{s.Op, strDeref(s.Selector), s.Value})
+	case FlowOpAssertText:
+		// selector is nullable: null asserts against the whole page.
+		return json.Marshal(struct {
+			Op       string  `json:"op"`
+			Selector *string `json:"selector"`
+			Contains string  `json:"contains"`
+		}{s.Op, s.Selector, s.Contains})
+	case FlowOpAssertURL:
+		return json.Marshal(struct {
+			Op       string `json:"op"`
+			Contains string `json:"contains"`
+		}{s.Op, s.Contains})
+	case "":
+		return nil, fmt.Errorf("flow step has no op")
+	default:
+		return nil, fmt.Errorf("unsupported flow step op %q", s.Op)
+	}
+}
+
+func (s *FlowStep) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Op       string  `json:"op"`
+		URL      string  `json:"url"`
+		Selector *string `json:"selector"`
+		Value    string  `json:"value"`
+		Contains string  `json:"contains"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	switch wire.Op {
+	case FlowOpGoto, FlowOpClick, FlowOpFill, FlowOpWaitFor, FlowOpAssertText, FlowOpAssertURL:
+		*s = FlowStep{Op: wire.Op, URL: wire.URL, Selector: wire.Selector, Value: wire.Value, Contains: wire.Contains}
+		return nil
+	default:
+		return fmt.Errorf("unsupported flow step op %q", wire.Op)
+	}
+}
+
+func strDeref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
 // CheckSpec is the internally-tagged union over check kinds (discriminator
 // "type", variant fields flattened alongside it). Exactly one variant pointer
 // is set, matching Type.
@@ -129,6 +223,7 @@ type CheckSpec struct {
 	TLSCert      *TLSCertCheck      `json:"-"`
 	DomainExpiry *DomainExpiryCheck `json:"-"`
 	DNS          *DNSCheck          `json:"-"`
+	Flow         *FlowCheck         `json:"-"`
 }
 
 const (
@@ -137,6 +232,7 @@ const (
 	CheckTypeTLSCert      = "tls_cert"
 	CheckTypeDomainExpiry = "domain_expiry"
 	CheckTypeDNS          = "dns"
+	CheckTypeFlow         = "flow"
 )
 
 func (c CheckSpec) MarshalJSON() ([]byte, error) {
@@ -187,6 +283,18 @@ func (c CheckSpec) MarshalJSON() ([]byte, error) {
 			Type string `json:"type"`
 			DNSCheck
 		}{c.Type, *c.DNS})
+	case CheckTypeFlow:
+		if c.Flow == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		f := *c.Flow
+		if f.Steps == nil {
+			f.Steps = []FlowStep{} // server requires the key; rejects null
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			FlowCheck
+		}{c.Type, f})
 	case "":
 		return nil, fmt.Errorf("check has no type")
 	default:
@@ -223,6 +331,9 @@ func (c *CheckSpec) UnmarshalJSON(data []byte) error {
 	case CheckTypeDNS:
 		c.DNS = new(DNSCheck)
 		return json.Unmarshal(data, c.DNS)
+	case CheckTypeFlow:
+		c.Flow = new(FlowCheck)
+		return json.Unmarshal(data, c.Flow)
 	default:
 		return fmt.Errorf("unsupported check type %q", probe.Type)
 	}

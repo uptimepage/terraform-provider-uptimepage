@@ -72,11 +72,20 @@ func TestNewTarget_EmptyCollectionsNeverNull(t *testing.T) {
 
 func TestCheckSpec_VariantsRoundTrip(t *testing.T) {
 	resolver := "1.1.1.1"
+	fillSel := "#username"
 	cases := map[string]CheckSpec{
 		"tcp":           {Type: CheckTypeTCP, TCP: &TCPCheck{Host: "db", Port: 5432, Timeout: 3000}},
 		"tls_cert":      {Type: CheckTypeTLSCert, TLSCert: &TLSCertCheck{Host: "x", Port: 443, WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
 		"domain_expiry": {Type: CheckTypeDomainExpiry, DomainExpiry: &DomainExpiryCheck{Domain: "x.com", WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
 		"dns":           {Type: CheckTypeDNS, DNS: &DNSCheck{Domain: "x.com", RecordType: "A", Resolver: &resolver, Timeout: 5000}},
+		"flow": {Type: CheckTypeFlow, Flow: &FlowCheck{
+			StartURL: "https://app.example.com/login",
+			Steps: []FlowStep{
+				{Op: FlowOpFill, Selector: &fillSel, Value: "user"},
+				{Op: FlowOpAssertURL, Contains: "/home"},
+			},
+			Timeout: 30000, StepTimeout: 5000, VerifyTLS: true,
+		}},
 	}
 	for name, spec := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -99,6 +108,71 @@ func TestCheckSpec_VariantsRoundTrip(t *testing.T) {
 				t.Errorf("type round-trip = %q, want %q", back.Type, spec.Type)
 			}
 		})
+	}
+}
+
+// TestFlowStep_TaggedPerOp pins that a flow step is internally tagged by "op"
+// and carries only that op's fields, so the server never sees stray keys.
+func TestFlowStep_TaggedPerOp(t *testing.T) {
+	sel := "#user"
+	cases := map[string]struct {
+		step   FlowStep
+		want   []string
+		absent []string
+	}{
+		"goto":       {FlowStep{Op: FlowOpGoto, URL: "https://x/login"}, []string{"op", "url"}, []string{"selector", "value", "contains"}},
+		"click":      {FlowStep{Op: FlowOpClick, Selector: &sel}, []string{"op", "selector"}, []string{"url", "value", "contains"}},
+		"fill":       {FlowStep{Op: FlowOpFill, Selector: &sel, Value: "secret"}, []string{"op", "selector", "value"}, []string{"url", "contains"}},
+		"wait_for":   {FlowStep{Op: FlowOpWaitFor, Selector: &sel}, []string{"op", "selector"}, []string{"url", "value", "contains"}},
+		"assert_url": {FlowStep{Op: FlowOpAssertURL, Contains: "/home"}, []string{"op", "contains"}, []string{"url", "selector", "value"}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			raw, err := json.Marshal(tc.step)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var m map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &m); err != nil {
+				t.Fatalf("to map: %v", err)
+			}
+			for _, k := range tc.want {
+				if _, ok := m[k]; !ok {
+					t.Errorf("missing key %q in %s", k, raw)
+				}
+			}
+			for _, k := range tc.absent {
+				if _, ok := m[k]; ok {
+					t.Errorf("unexpected key %q in %s", k, raw)
+				}
+			}
+			var back FlowStep
+			if err := json.Unmarshal(raw, &back); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if back.Op != tc.step.Op {
+				t.Errorf("op round-trip = %q, want %q", back.Op, tc.step.Op)
+			}
+		})
+	}
+}
+
+// TestFlowStep_AssertTextNullSelector pins that a page-wide assert_text emits an
+// explicit null selector and unmarshals back to nil.
+func TestFlowStep_AssertTextNullSelector(t *testing.T) {
+	raw, err := json.Marshal(FlowStep{Op: FlowOpAssertText, Contains: "Welcome"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"selector":null`) {
+		t.Errorf("assert_text with no selector must emit null, got %s", raw)
+	}
+	var back FlowStep
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if back.Selector != nil {
+		t.Errorf("selector = %q, want nil", *back.Selector)
 	}
 }
 

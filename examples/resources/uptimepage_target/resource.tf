@@ -91,3 +91,25 @@ resource "uptimepage_target" "dns" {
     }
   }
 }
+
+# Browser login flow check. Runs a headless browser through the steps and
+# asserts the result. Put credentials in an org secret and reference them as
+# {{name}}; an inline literal would be stored as typed.
+resource "uptimepage_target" "login" {
+  name     = "app login"
+  interval = 300
+
+  check = {
+    type = "flow"
+    flow = {
+      start_url = "https://app.example.com/login"
+      steps = [
+        { op = "fill", selector = "#username", value = "monitor@example.com" },
+        { op = "fill", selector = "#password", value = "{{login_password}}" },
+        { op = "click", selector = "button[type=submit]" },
+        { op = "assert_url", contains = "/dashboard" },
+        { op = "assert_text", contains = "Signed in" },
+      ]
+    }
+  }
+}

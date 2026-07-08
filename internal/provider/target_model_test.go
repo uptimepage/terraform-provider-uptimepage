@@ -247,3 +247,92 @@ func TestCheckToWire_MissingBlockErrors(t *testing.T) {
 		t.Error("expected error when the block for the type is missing")
 	}
 }
+
+func TestCheckToWire_Flow(t *testing.T) {
+	ctx := context.Background()
+	c := checkModel{Type: types.StringValue(client.CheckTypeFlow), Flow: &flowCheckModel{
+		StartURL: types.StringValue("https://app.example.com/login"),
+		Steps: []flowStepModel{
+			{Op: types.StringValue(client.FlowOpFill), URL: types.StringNull(), Selector: types.StringValue("#u"), Value: types.StringValue("secret"), Contains: types.StringNull()},
+			{Op: types.StringValue(client.FlowOpAssertText), URL: types.StringNull(), Selector: types.StringNull(), Value: types.StringNull(), Contains: types.StringValue("Welcome")},
+		},
+		TimeoutMs:     types.Int64Value(30000),
+		StepTimeoutMs: types.Int64Value(5000),
+		VerifyTLS:     types.BoolValue(true),
+	}}
+	out, d := c.toWire(ctx)
+	if d.HasError() {
+		t.Fatalf("toWire: %v", d)
+	}
+	if out.Flow == nil || len(out.Flow.Steps) != 2 {
+		t.Fatalf("flow wire wrong: %+v", out.Flow)
+	}
+	fill := out.Flow.Steps[0]
+	if fill.Op != client.FlowOpFill || fill.Selector == nil || *fill.Selector != "#u" || fill.Value != "secret" {
+		t.Errorf("fill step wrong: %+v", fill)
+	}
+	// assert_text with no selector expands to a nil selector (page-wide assertion).
+	if out.Flow.Steps[1].Selector != nil {
+		t.Errorf("assert_text selector = %q, want nil", *out.Flow.Steps[1].Selector)
+	}
+}
+
+// TestFlowToModel_RedactionSuppressed pins the flow analog of the http secret
+// carry: the API returns a fill value redacted, and the mapper keeps the prior
+// (real) value at the same step index so there is no perpetual diff.
+func TestFlowToModel_RedactionSuppressed(t *testing.T) {
+	ctx := context.Background()
+	prior := checkModel{Type: types.StringValue(client.CheckTypeFlow), Flow: &flowCheckModel{
+		Steps: []flowStepModel{
+			{Op: types.StringValue(client.FlowOpFill), Selector: types.StringValue("#p"), Value: types.StringValue("real-pass")},
+		},
+	}}
+	sel := "#p"
+	spec := client.CheckSpec{Type: client.CheckTypeFlow, Flow: &client.FlowCheck{
+		StartURL: "https://app.example.com/login",
+		Steps:    []client.FlowStep{{Op: client.FlowOpFill, Selector: &sel, Value: redactedSentinel}},
+		Timeout:  30000, StepTimeout: 5000, VerifyTLS: true,
+	}}
+
+	got, d := checkToModel(ctx, prior, spec)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if got.Flow == nil || len(got.Flow.Steps) != 1 {
+		t.Fatalf("flow model wrong: %+v", got.Flow)
+	}
+	if got.Flow.Steps[0].Value.ValueString() != "real-pass" {
+		t.Errorf("fill value not preserved from prior: %q", got.Flow.Steps[0].Value.ValueString())
+	}
+}
+
+func TestValidateFlowSteps(t *testing.T) {
+	var ok diag.Diagnostics
+	validateFlowSteps([]flowStepModel{
+		{Op: types.StringValue(client.FlowOpGoto), URL: types.StringValue("https://x/login")},
+		{Op: types.StringValue(client.FlowOpFill), Selector: types.StringValue("#u"), Value: types.StringValue("v")},
+		{Op: types.StringValue(client.FlowOpAssertText), Contains: types.StringValue("Hi")},
+	}, &ok)
+	if ok.HasError() {
+		t.Errorf("well-formed steps should validate, got %v", ok)
+	}
+
+	var bad diag.Diagnostics
+	validateFlowSteps([]flowStepModel{
+		{Op: types.StringValue(client.FlowOpGoto), URL: types.StringNull()},                                     // missing url
+		{Op: types.StringValue(client.FlowOpFill), Selector: types.StringNull(), Value: types.StringValue("v")}, // missing selector
+		{Op: types.StringValue(client.FlowOpAssertURL), Contains: types.StringValue("")},                        // empty contains
+	}, &bad)
+	if n := len(bad.Errors()); n != 3 {
+		t.Errorf("expected 3 errors, got %d: %v", n, bad)
+	}
+
+	// An unknown value defers to apply-time rather than erroring at plan.
+	var unk diag.Diagnostics
+	validateFlowSteps([]flowStepModel{
+		{Op: types.StringValue(client.FlowOpGoto), URL: types.StringUnknown()},
+	}, &unk)
+	if unk.HasError() {
+		t.Errorf("unknown field should defer to apply-time, got %v", unk)
+	}
+}
