@@ -10,7 +10,7 @@ import (
 	"github.com/uptimepage/terraform-provider-uptimepage/internal/client"
 )
 
-// redactedSentinel is what the API returns for write-only secret fields on read.
+// redactedSentinel is what the API returns for secret fields on read.
 const redactedSentinel = "***"
 
 // targetModel is the tfsdk view of an uptimepage_target.
@@ -58,6 +58,8 @@ type httpCheckModel struct {
 	VerifyTLS            types.Bool          `tfsdk:"verify_tls"`
 	BasicAuth            *basicAuthModel     `tfsdk:"basic_auth"`
 	BearerToken          types.String        `tfsdk:"bearer_token"`
+	BearerTokenWo        types.String        `tfsdk:"bearer_token_wo"`
+	BearerTokenWoVersion types.Int64         `tfsdk:"bearer_token_wo_version"`
 }
 
 type tcpCheckModel struct {
@@ -119,8 +121,10 @@ type rangeModel struct {
 }
 
 type basicAuthModel struct {
-	Username types.String `tfsdk:"username"`
-	Password types.String `tfsdk:"password"`
+	Username          types.String `tfsdk:"username"`
+	Password          types.String `tfsdk:"password"`
+	PasswordWo        types.String `tfsdk:"password_wo"`
+	PasswordWoVersion types.Int64  `tfsdk:"password_wo_version"`
 }
 
 // --- model -> wire ---
@@ -322,12 +326,22 @@ func (h httpCheckModel) toWire(ctx context.Context) (*client.HTTPCheck, diag.Dia
 		Headers:              mapToStrings(ctx, h.Headers, &diags),
 		Body:                 optString(h.Body),
 		VerifyTLS:            h.VerifyTLS.ValueBool(),
-		BearerToken:          optString(h.BearerToken),
+		BearerToken:          optString(firstSet(h.BearerToken, h.BearerTokenWo)),
 	}
 	if h.BasicAuth != nil {
-		out.BasicAuth = &[2]string{h.BasicAuth.Username.ValueString(), h.BasicAuth.Password.ValueString()}
+		pw := firstSet(h.BasicAuth.Password, h.BasicAuth.PasswordWo)
+		out.BasicAuth = &[2]string{h.BasicAuth.Username.ValueString(), pw.ValueString()}
 	}
 	return out, diags
+}
+
+// firstSet picks the classic in-state secret when present, else its write-only
+// twin (grafted from config, since write-only values never appear in the plan).
+func firstSet(a, b types.String) types.String {
+	if !a.IsNull() && !a.IsUnknown() {
+		return a
+	}
+	return b
 }
 
 func missingBlock(kind string) diag.Diagnostics {
@@ -373,8 +387,8 @@ func (e expectedStatusModel) toWire(ctx context.Context) (client.ExpectedStatus,
 // --- wire -> model ---
 
 // targetToModel maps a read Target into the tfsdk model. prior carries the
-// pre-existing state so write-only secrets (basic_auth/bearer_token), which the
-// API returns redacted, keep their known values instead of showing a diff.
+// pre-existing state so secrets (basic_auth/bearer_token), which the API
+// returns redacted, keep their known values instead of showing a diff.
 func targetToModel(ctx context.Context, prior targetModel, t *client.Target) (targetModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
@@ -524,7 +538,7 @@ func httpToModel(ctx context.Context, prior *httpCheckModel, h *client.HTTPCheck
 		priorURL = prior.URL
 	}
 
-	return &httpCheckModel{
+	out := &httpCheckModel{
 		// API canonicalizes the URL; keep the user's form when equivalent.
 		URL:                  keepURL(priorURL, h.URL),
 		Method:               types.StringValue(h.Method),
@@ -539,7 +553,13 @@ func httpToModel(ctx context.Context, prior *httpCheckModel, h *client.HTTPCheck
 		// Secrets: the API redacts these on read, so trust prior state.
 		BasicAuth:   keepBasicAuth(priorBasic, h.BasicAuth),
 		BearerToken: keepSecret(priorBearer, h.BearerToken),
-	}, diags
+	}
+	// Rotation triggers are ordinary config attrs, not part of the API payload;
+	// carry them through the read-back so state matches the plan.
+	if prior != nil {
+		out.BearerTokenWoVersion = prior.BearerTokenWoVersion
+	}
+	return out, diags
 }
 
 func expectedStatusToModel(ctx context.Context, e client.ExpectedStatus) (expectedStatusModel, diag.Diagnostics) {
@@ -571,19 +591,31 @@ func expectedStatusToModel(ctx context.Context, e client.ExpectedStatus) (expect
 	return out, diags
 }
 
-// keepBasicAuth returns the prior value when the API echoes the redaction
-// sentinel; otherwise it reflects what the API returned (e.g. cleared).
+// keepBasicAuth returns the prior secrets when the API echoes the redaction
+// sentinel; otherwise it reflects what the API returned (e.g. cleared). The
+// rotation counter rides along either way; the write-only value never does.
 func keepBasicAuth(prior *basicAuthModel, got *[2]string) *basicAuthModel {
 	if got != nil && got[0] == redactedSentinel {
-		return prior
+		if prior == nil {
+			return nil
+		}
+		return &basicAuthModel{
+			Username:          prior.Username,
+			Password:          prior.Password,
+			PasswordWoVersion: prior.PasswordWoVersion,
+		}
 	}
 	if got == nil {
 		return nil
 	}
-	return &basicAuthModel{
+	out := &basicAuthModel{
 		Username: types.StringValue(got[0]),
 		Password: types.StringValue(got[1]),
 	}
+	if prior != nil {
+		out.PasswordWoVersion = prior.PasswordWoVersion
+	}
+	return out
 }
 
 func keepSecret(prior types.String, got *string) types.String {

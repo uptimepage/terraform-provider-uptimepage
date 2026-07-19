@@ -81,14 +81,23 @@ The provider identifies itself on every request (a `terraform-provider-uptimepag
 
 It's informational — the UI doesn't lock the resource. But editing a managed resource in the UI flips its badge and **the change is overwritten on the next `terraform apply`**, since your configuration stays the source of truth. Make changes in Terraform, not the UI.
 
-## Write-only secrets
+## Secrets
 
-Some fields are write-only: the API returns them redacted (`***`) on read, so the provider keeps the value from your configuration/state and **cannot detect out-of-band changes** to them. Rotating such a secret means changing it in your configuration. Affected fields:
+The API returns secret fields redacted (`***`) on read, so the provider keeps the value from your configuration/state and **cannot detect out-of-band changes** to them. Rotating such a secret means changing it in your configuration. Affected fields:
 
 - `uptimepage_target` → `check.http.basic_auth`, `check.http.bearer_token`
 - `uptimepage_notification_channel` → `config.webhook.url`, `config.webhook.headers`, `config.slack.webhook_url`, `config.telegram.bot_token`
 
 On `terraform import`, these land empty — set them in configuration afterwards.
+
+### Write-only arguments (Terraform 1.11+)
+
+The target check secrets also come as [write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments), which are sent to the API on apply but never persisted to state or plan:
+
+- `check.http.basic_auth.password_wo` + `password_wo_version`
+- `check.http.bearer_token_wo` + `bearer_token_wo_version`
+
+Because the value never touches state, Terraform cannot diff it — bump the paired `*_wo_version` to rotate the secret. Forgetting the bump is silent: apply succeeds with no diff and the new value is not sent. The classic in-state attributes remain available for older Terraform; setting both variants of the same secret is a validation error.
 
 ## Development
 

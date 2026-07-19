@@ -258,16 +258,52 @@ func httpCheckAttributes() map[string]schema.Attribute {
 		"basic_auth": schema.SingleNestedAttribute{
 			Optional:    true,
 			Sensitive:   true,
-			Description: "HTTP basic auth. Write-only: the API never returns the value, so external changes to it are not detected.",
+			Description: "HTTP basic auth. The API never returns the secret, so external changes to it are not detected.",
 			Attributes: map[string]schema.Attribute{
 				"username": schema.StringAttribute{Required: true, Sensitive: true},
-				"password": schema.StringAttribute{Required: true, Sensitive: true},
+				"password": schema.StringAttribute{
+					Optional:    true,
+					Sensitive:   true,
+					Description: "Password, persisted to Terraform state. On Terraform 1.11+ prefer password_wo, which never reaches state.",
+					Validators: []validator.String{stringvalidator.ConflictsWith(
+						path.MatchRelative().AtParent().AtName("password_wo"))},
+				},
+				"password_wo": schema.StringAttribute{
+					Optional:    true,
+					WriteOnly:   true,
+					Sensitive:   true,
+					Description: "Write-only password (Terraform 1.11+): sent to the API on apply, never persisted to state or plan. Set password_wo_version alongside and bump it to rotate.",
+					Validators: []validator.String{stringvalidator.AlsoRequires(
+						path.MatchRelative().AtParent().AtName("password_wo_version"))},
+				},
+				"password_wo_version": schema.Int64Attribute{
+					Optional:    true,
+					Description: "Rotation trigger for password_wo. The password itself never diffs, so bump this when it changes.",
+					Validators: []validator.Int64{int64validator.AlsoRequires(
+						path.MatchRelative().AtParent().AtName("password_wo"))},
+				},
 			},
 		},
 		"bearer_token": schema.StringAttribute{
 			Optional:    true,
 			Sensitive:   true,
-			Description: "Bearer token. Write-only: the API never returns the value, so external changes to it are not detected.",
+			Description: "Bearer token, persisted to Terraform state. On Terraform 1.11+ prefer bearer_token_wo, which never reaches state. The API never returns the value, so external changes to it are not detected.",
+			Validators: []validator.String{stringvalidator.ConflictsWith(
+				path.MatchRelative().AtParent().AtName("bearer_token_wo"))},
+		},
+		"bearer_token_wo": schema.StringAttribute{
+			Optional:    true,
+			WriteOnly:   true,
+			Sensitive:   true,
+			Description: "Write-only bearer token (Terraform 1.11+): sent to the API on apply, never persisted to state or plan. Set bearer_token_wo_version alongside and bump it to rotate.",
+			Validators: []validator.String{stringvalidator.AlsoRequires(
+				path.MatchRelative().AtParent().AtName("bearer_token_wo_version"))},
+		},
+		"bearer_token_wo_version": schema.Int64Attribute{
+			Optional:    true,
+			Description: "Rotation trigger for bearer_token_wo. The token itself never diffs, so bump this when it changes.",
+			Validators: []validator.Int64{int64validator.AlsoRequires(
+				path.MatchRelative().AtParent().AtName("bearer_token_wo"))},
 		},
 	}
 }
@@ -390,7 +426,7 @@ func flowCheckAttribute() schema.Attribute {
 						"value": schema.StringAttribute{
 							Optional:    true,
 							Sensitive:   true,
-							Description: "Text to fill (op = fill). Write-only: the API redacts it on read, so external changes are not detected. Reference an org secret as {{name}} for credentials.",
+							Description: "Text to fill (op = fill). The API redacts it on read, so external changes are not detected. Reference an org secret as {{name}} for credentials.",
 						},
 						"contains": schema.StringAttribute{
 							Optional:    true,
@@ -423,11 +459,13 @@ func flowCheckAttribute() schema.Attribute {
 }
 
 func (r *targetResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan targetModel
+	var plan, cfg targetModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	graftWriteOnlySecrets(&plan, cfg)
 
 	in, d := plan.toNew(ctx)
 	resp.Diagnostics.Append(d...)
@@ -441,7 +479,8 @@ func (r *targetResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	// prior = plan so write-only secrets survive the redacted read-back.
+	// prior = plan so in-state secrets and rotation counters survive the
+	// redacted read-back.
 	state, d := targetToModel(ctx, plan, created)
 	resp.Diagnostics.Append(d...)
 	if resp.Diagnostics.HasError() {
@@ -516,12 +555,14 @@ func (r *targetResource) Read(ctx context.Context, req resource.ReadRequest, res
 }
 
 func (r *targetResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan, prior targetModel
+	var plan, prior, cfg targetModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	graftWriteOnlySecrets(&plan, cfg)
 
 	in, d := plan.toUpdate(ctx)
 	resp.Diagnostics.Append(d...)
@@ -583,6 +624,19 @@ func (r *targetResource) ImportState(ctx context.Context, req resource.ImportSta
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
+// graftWriteOnlySecrets copies write-only secret values from the decoded
+// config into the planned model: Terraform carries them only in config, never
+// in the plan.
+func graftWriteOnlySecrets(plan *targetModel, cfg targetModel) {
+	if plan.Check.HTTP == nil || cfg.Check.HTTP == nil {
+		return
+	}
+	plan.Check.HTTP.BearerTokenWo = cfg.Check.HTTP.BearerTokenWo
+	if plan.Check.HTTP.BasicAuth != nil && cfg.Check.HTTP.BasicAuth != nil {
+		plan.Check.HTTP.BasicAuth.PasswordWo = cfg.Check.HTTP.BasicAuth.PasswordWo
+	}
+}
+
 // ValidateConfig enforces that exactly the nested block matching check.type is
 // set, surfaced at plan time rather than as an apply-time API error.
 func (r *targetResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
@@ -603,6 +657,18 @@ func (r *targetResource) ValidateConfig(ctx context.Context, req resource.Valida
 
 	if cfg.Check.Type.ValueString() == client.CheckTypeFlow && cfg.Check.Flow != nil {
 		validateFlowSteps(cfg.Check.Flow.Steps, &resp.Diagnostics)
+	}
+
+	// ConflictsWith rules out both; this rules out neither.
+	if cfg.Check.HTTP != nil && cfg.Check.HTTP.BasicAuth != nil {
+		ba := cfg.Check.HTTP.BasicAuth
+		if ba.Password.IsNull() && ba.PasswordWo.IsNull() {
+			resp.Diagnostics.AddAttributeError(
+				path.Root("check").AtName("http").AtName("basic_auth"),
+				"Missing basic auth password",
+				"Set either password (persisted to Terraform state) or password_wo with password_wo_version (write-only, Terraform 1.11+).",
+			)
+		}
 	}
 }
 

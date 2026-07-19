@@ -21,7 +21,9 @@ resource "uptimepage_target" "api" {
   }
 }
 
-# HTTP range matcher with basic auth (write-only secret).
+# HTTP range matcher with basic auth. password_wo (Terraform 1.11+) never
+# reaches state; bump password_wo_version to rotate it. On older Terraform use
+# password instead, which persists to state.
 resource "uptimepage_target" "admin" {
   name     = "admin panel"
   interval = 120
@@ -40,8 +42,9 @@ resource "uptimepage_target" "admin" {
       }
 
       basic_auth = {
-        username = var.admin_user
-        password = var.admin_password
+        username            = var.admin_user
+        password_wo         = var.admin_password
+        password_wo_version = 1
       }
     }
   }

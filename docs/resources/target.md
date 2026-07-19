@@ -36,7 +36,9 @@ resource "uptimepage_target" "api" {
   }
 }
 
-# HTTP range matcher with basic auth (write-only secret).
+# HTTP range matcher with basic auth. password_wo (Terraform 1.11+) never
+# reaches state; bump password_wo_version to rotate it. On older Terraform use
+# password instead, which persists to state.
 resource "uptimepage_target" "admin" {
   name     = "admin panel"
   interval = 120
@@ -55,8 +57,9 @@ resource "uptimepage_target" "admin" {
       }
 
       basic_auth = {
-        username = var.admin_user
-        password = var.admin_password
+        username            = var.admin_user
+        password_wo         = var.admin_password
+        password_wo_version = 1
       }
     }
   }
@@ -223,7 +226,7 @@ Optional:
 - `contains` (String) Substring to assert (op = assert_text or assert_url).
 - `selector` (String) CSS selector (op = click, fill, wait_for, or optionally assert_text).
 - `url` (String) Navigation URL (op = goto).
-- `value` (String, Sensitive) Text to fill (op = fill). Write-only: the API redacts it on read, so external changes are not detected. Reference an org secret as {{name}} for credentials.
+- `value` (String, Sensitive) Text to fill (op = fill). The API redacts it on read, so external changes are not detected. Reference an org secret as {{name}} for credentials.
 
 
 
@@ -237,8 +240,10 @@ Required:
 
 Optional:
 
-- `basic_auth` (Attributes, Sensitive) HTTP basic auth. Write-only: the API never returns the value, so external changes to it are not detected. (see [below for nested schema](#nestedatt--check--http--basic_auth))
-- `bearer_token` (String, Sensitive) Bearer token. Write-only: the API never returns the value, so external changes to it are not detected.
+- `basic_auth` (Attributes, Sensitive) HTTP basic auth. The API never returns the secret, so external changes to it are not detected. (see [below for nested schema](#nestedatt--check--http--basic_auth))
+- `bearer_token` (String, Sensitive) Bearer token, persisted to Terraform state. On Terraform 1.11+ prefer bearer_token_wo, which never reaches state. The API never returns the value, so external changes to it are not detected.
+- `bearer_token_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only bearer token (Terraform 1.11+): sent to the API on apply, never persisted to state or plan. Set bearer_token_wo_version alongside and bump it to rotate.
+- `bearer_token_wo_version` (Number) Rotation trigger for bearer_token_wo. The token itself never diffs, so bump this when it changes.
 - `body` (String) Request body.
 - `expected_body_contains` (String) Substring the response body must contain.
 - `follow_redirects` (Boolean)
@@ -276,8 +281,13 @@ Required:
 
 Required:
 
-- `password` (String, Sensitive)
 - `username` (String, Sensitive)
+
+Optional:
+
+- `password` (String, Sensitive) Password, persisted to Terraform state. On Terraform 1.11+ prefer password_wo, which never reaches state.
+- `password_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only password (Terraform 1.11+): sent to the API on apply, never persisted to state or plan. Set password_wo_version alongside and bump it to rotate.
+- `password_wo_version` (Number) Rotation trigger for password_wo. The password itself never diffs, so bump this when it changes.
 
 
 
@@ -331,7 +341,7 @@ The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/c
 
 ```shell
 # Import an existing target by its UUID.
-# Write-only secrets (check.basic_auth, check.bearer_token) cannot be read back
-# from the API, so set them in config after import.
+# Secrets (check.basic_auth, check.bearer_token) cannot be read back from the
+# API, so set them in config after import.
 terraform import uptimepage_target.api 01h7m8z4n6v0e1m7v7y6x8x8x8
 ```

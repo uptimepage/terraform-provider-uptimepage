@@ -336,3 +336,148 @@ func TestValidateFlowSteps(t *testing.T) {
 		t.Errorf("unknown field should defer to apply-time, got %v", unk)
 	}
 }
+
+// TestCheckToWire_WriteOnlySecrets: the write-only twins feed the wire payload
+// when the in-state secrets are absent.
+func TestCheckToWire_WriteOnlySecrets(t *testing.T) {
+	ctx := context.Background()
+	c := checkModel{Type: types.StringValue(client.CheckTypeHTTP), HTTP: &httpCheckModel{
+		URL:            types.StringValue("https://example.com"),
+		Method:         types.StringValue("GET"),
+		TimeoutMs:      types.Int64Value(5000),
+		ExpectedStatus: expectedStatusModel{Kind: types.StringValue(client.StatusKindExact), Exact: types.Int64Value(200)},
+		BasicAuth: &basicAuthModel{
+			Username:          types.StringValue("user"),
+			PasswordWo:        types.StringValue("wo-pass"),
+			PasswordWoVersion: types.Int64Value(1),
+		},
+		BearerTokenWo:        types.StringValue("wo-token"),
+		BearerTokenWoVersion: types.Int64Value(1),
+	}}
+	out, d := c.toWire(ctx)
+	if d.HasError() {
+		t.Fatalf("toWire: %v", d)
+	}
+	if out.HTTP.BasicAuth == nil || out.HTTP.BasicAuth[0] != "user" || out.HTTP.BasicAuth[1] != "wo-pass" {
+		t.Errorf("password_wo not sent: %+v", out.HTTP.BasicAuth)
+	}
+	if out.HTTP.BearerToken == nil || *out.HTTP.BearerToken != "wo-token" {
+		t.Errorf("bearer_token_wo not sent: %v", out.HTTP.BearerToken)
+	}
+}
+
+// TestCheckToModel_RotationVersionsSurviveRedaction: the version triggers are
+// ordinary attrs the API never sees; the redacted read-back must not drop them
+// or the applied state would diverge from the plan.
+func TestCheckToModel_RotationVersionsSurviveRedaction(t *testing.T) {
+	ctx := context.Background()
+	prior := checkModel{Type: types.StringValue(client.CheckTypeHTTP), HTTP: &httpCheckModel{
+		BasicAuth: &basicAuthModel{
+			Username:          types.StringValue("user"),
+			PasswordWoVersion: types.Int64Value(3),
+		},
+		BearerTokenWoVersion: types.Int64Value(2),
+	}}
+	spec := client.CheckSpec{Type: client.CheckTypeHTTP, HTTP: &client.HTTPCheck{
+		URL: "https://example.com", Method: "GET", Timeout: 5000,
+		ExpectedStatus: client.ExpectedStatus{Kind: client.StatusKindExact, Exact: 200},
+		Headers:        map[string]string{},
+		BasicAuth:      &[2]string{redactedSentinel, redactedSentinel},
+		BearerToken:    strptr(redactedSentinel),
+	}}
+	got, d := checkToModel(ctx, prior, spec)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if got.HTTP.BasicAuth == nil || got.HTTP.BasicAuth.PasswordWoVersion.ValueInt64() != 3 {
+		t.Errorf("password_wo_version dropped: %+v", got.HTTP.BasicAuth)
+	}
+	if got.HTTP.BearerTokenWoVersion.ValueInt64() != 2 {
+		t.Errorf("bearer_token_wo_version dropped: %v", got.HTTP.BearerTokenWoVersion)
+	}
+}
+
+func TestKeepBasicAuth_NonRedactedKeepsVersion(t *testing.T) {
+	prior := &basicAuthModel{Username: types.StringValue("u"), PasswordWoVersion: types.Int64Value(4)}
+	got := keepBasicAuth(prior, &[2]string{"u2", "p2"})
+	if got == nil || got.Username.ValueString() != "u2" || got.Password.ValueString() != "p2" {
+		t.Fatalf("api values not reflected: %+v", got)
+	}
+	if got.PasswordWoVersion.ValueInt64() != 4 {
+		t.Errorf("version dropped: %+v", got)
+	}
+}
+
+func TestGraftWriteOnlySecrets(t *testing.T) {
+	plan := targetModel{Check: checkModel{Type: types.StringValue(client.CheckTypeHTTP), HTTP: &httpCheckModel{
+		BasicAuth: &basicAuthModel{Username: types.StringValue("u")},
+	}}}
+	cfg := targetModel{Check: checkModel{Type: types.StringValue(client.CheckTypeHTTP), HTTP: &httpCheckModel{
+		BasicAuth:     &basicAuthModel{Username: types.StringValue("u"), PasswordWo: types.StringValue("s3cret")},
+		BearerTokenWo: types.StringValue("tok"),
+	}}}
+	graftWriteOnlySecrets(&plan, cfg)
+	if plan.Check.HTTP.BasicAuth.PasswordWo.ValueString() != "s3cret" {
+		t.Errorf("password_wo not grafted: %+v", plan.Check.HTTP.BasicAuth)
+	}
+	if plan.Check.HTTP.BearerTokenWo.ValueString() != "tok" {
+		t.Errorf("bearer_token_wo not grafted: %v", plan.Check.HTTP.BearerTokenWo)
+	}
+}
+
+// TestKeepBasicAuth_RedactedDropsWriteOnlyValue: the grafted write-only value
+// must not ride the prior model back into state on the sentinel path.
+func TestKeepBasicAuth_RedactedDropsWriteOnlyValue(t *testing.T) {
+	prior := &basicAuthModel{
+		Username:          types.StringValue("u"),
+		PasswordWo:        types.StringValue("grafted-secret"),
+		PasswordWoVersion: types.Int64Value(2),
+	}
+	got := keepBasicAuth(prior, &[2]string{redactedSentinel, redactedSentinel})
+	if got == nil || got.Username.ValueString() != "u" || got.PasswordWoVersion.ValueInt64() != 2 {
+		t.Fatalf("prior fields not kept: %+v", got)
+	}
+	if !got.PasswordWo.IsNull() {
+		t.Errorf("write-only value persisted: %q", got.PasswordWo.ValueString())
+	}
+}
+
+func TestGraftWriteOnlySecrets_BearerOnlyAndNilHTTP(t *testing.T) {
+	plan := targetModel{Check: checkModel{Type: types.StringValue(client.CheckTypeHTTP), HTTP: &httpCheckModel{}}}
+	cfg := targetModel{Check: checkModel{Type: types.StringValue(client.CheckTypeHTTP), HTTP: &httpCheckModel{
+		BearerTokenWo: types.StringValue("tok"),
+	}}}
+	graftWriteOnlySecrets(&plan, cfg)
+	if plan.Check.HTTP.BearerTokenWo.ValueString() != "tok" {
+		t.Errorf("bearer_token_wo not grafted without basic_auth: %v", plan.Check.HTTP.BearerTokenWo)
+	}
+
+	tcpPlan := targetModel{Check: checkModel{Type: types.StringValue(client.CheckTypeTCP)}}
+	graftWriteOnlySecrets(&tcpPlan, cfg) // must not panic on nil HTTP
+	if tcpPlan.Check.HTTP != nil {
+		t.Errorf("nil http block should stay nil: %+v", tcpPlan.Check.HTTP)
+	}
+}
+
+// TestCheckToModel_NoPrior: the first read after import has no prior model;
+// secrets land null and nothing panics.
+func TestCheckToModel_NoPrior(t *testing.T) {
+	ctx := context.Background()
+	spec := client.CheckSpec{Type: client.CheckTypeHTTP, HTTP: &client.HTTPCheck{
+		URL: "https://example.com", Method: "GET", Timeout: 5000,
+		ExpectedStatus: client.ExpectedStatus{Kind: client.StatusKindExact, Exact: 200},
+		Headers:        map[string]string{},
+		BasicAuth:      &[2]string{redactedSentinel, redactedSentinel},
+		BearerToken:    strptr(redactedSentinel),
+	}}
+	got, d := checkToModel(ctx, checkModel{}, spec)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if got.HTTP.BasicAuth != nil {
+		t.Errorf("basic_auth should be null with no prior: %+v", got.HTTP.BasicAuth)
+	}
+	if !got.HTTP.BearerToken.IsNull() || !got.HTTP.BearerTokenWoVersion.IsNull() {
+		t.Errorf("bearer fields should be null with no prior: %+v", got.HTTP)
+	}
+}
