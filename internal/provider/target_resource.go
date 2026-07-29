@@ -79,7 +79,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"interval": schema.Int64Attribute{
 				Required:    true,
-				Description: "Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side. Expiry checks watch state that moves in days, so the usual cadences are 43200 for tls_cert and 86400 for domain_expiry rather than the hourly minimum the API accepts.",
+				Description: "Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side: domain_expiry rejects anything under 43200 because RDAP rate-limits by source address, tls_cert under 3600, flow under 300. Expiry checks watch state that moves in days, so 43200 for tls_cert and 86400 for domain_expiry are the usual cadences.",
 				Validators:  []validator.Int64{int64validator.AtLeast(10)},
 			},
 			"enabled": schema.BoolAttribute{
