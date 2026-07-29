@@ -64,16 +64,34 @@ resource "uptimepage_target" "db" {
   }
 }
 
-# TLS certificate expiry check.
+# TLS certificate expiry check. A certificate changes on renewal, so twice a
+# day is plenty; the alert fires warn_days ahead either way.
 resource "uptimepage_target" "cert" {
   name     = "cert example.com"
-  interval = 3600
+  interval = 43200
 
   check = {
     type = "tls_cert"
     tls_cert = {
       host          = "example.com"
       port          = 443
+      warn_days     = 30
+      critical_days = 7
+    }
+  }
+}
+
+# Domain registration expiry check. Registry data changes about once a year and
+# RDAP rate-limits by source address, so keep this daily, especially when a
+# loop creates one per domain.
+resource "uptimepage_target" "domain" {
+  name     = "domain example.com"
+  interval = 86400
+
+  check = {
+    type = "domain_expiry"
+    domain_expiry = {
+      domain        = "example.com"
       warn_days     = 30
       critical_days = 7
     }
@@ -97,10 +115,11 @@ resource "uptimepage_target" "dns" {
 
 # Browser login flow check. Runs a headless browser through the steps and
 # asserts the result. Put credentials in an org secret and reference them as
-# {{name}}; an inline literal would be stored as typed.
+# {{name}}; an inline literal would be stored as typed. Far heavier than a
+# single probe, so it runs less often.
 resource "uptimepage_target" "login" {
   name     = "app login"
-  interval = 300
+  interval = 900
 
   check = {
     type = "flow"

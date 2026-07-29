@@ -79,16 +79,34 @@ resource "uptimepage_target" "db" {
   }
 }
 
-# TLS certificate expiry check.
+# TLS certificate expiry check. A certificate changes on renewal, so twice a
+# day is plenty; the alert fires warn_days ahead either way.
 resource "uptimepage_target" "cert" {
   name     = "cert example.com"
-  interval = 3600
+  interval = 43200
 
   check = {
     type = "tls_cert"
     tls_cert = {
       host          = "example.com"
       port          = 443
+      warn_days     = 30
+      critical_days = 7
+    }
+  }
+}
+
+# Domain registration expiry check. Registry data changes about once a year and
+# RDAP rate-limits by source address, so keep this daily, especially when a
+# loop creates one per domain.
+resource "uptimepage_target" "domain" {
+  name     = "domain example.com"
+  interval = 86400
+
+  check = {
+    type = "domain_expiry"
+    domain_expiry = {
+      domain        = "example.com"
       warn_days     = 30
       critical_days = 7
     }
@@ -112,10 +130,11 @@ resource "uptimepage_target" "dns" {
 
 # Browser login flow check. Runs a headless browser through the steps and
 # asserts the result. Put credentials in an org secret and reference them as
-# {{name}}; an inline literal would be stored as typed.
+# {{name}}; an inline literal would be stored as typed. Far heavier than a
+# single probe, so it runs less often.
 resource "uptimepage_target" "login" {
   name     = "app login"
-  interval = 300
+  interval = 900
 
   check = {
     type = "flow"
@@ -139,7 +158,7 @@ resource "uptimepage_target" "login" {
 ### Required
 
 - `check` (Attributes) Check definition. Set `type` and the matching nested block. (see [below for nested schema](#nestedatt--check))
-- `interval` (Number) Check interval in seconds (the effective minimum is plan-dependent and enforced server-side).
+- `interval` (Number) Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side. Expiry checks watch state that moves in days, so the usual cadences are 43200 for tls_cert and 86400 for domain_expiry rather than the hourly minimum the API accepts.
 - `name` (String) Human-readable target name.
 
 ### Optional
