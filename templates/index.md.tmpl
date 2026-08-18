@@ -24,8 +24,9 @@ description: |-
 | `uptimepage_status_page` | A public status page: subdomain slug, branding and theme. Owner-only. |
 | `uptimepage_status_page_component` | A monitor shown on a status page. |
 
-There is one data source, `uptimepage_target`, for reading a monitor that
-Terraform does not own.
+Two data sources read what Terraform does not own: `uptimepage_target` for a
+monitor created elsewhere, and `uptimepage_heartbeat` for the URL a heartbeat
+job reports to.
 
 ## Check types
 
@@ -108,5 +109,10 @@ and `write` implies `read`. Add the `:delete` scopes only if you run
 `terraform destroy`. Status-page writes are owner-only. Binding a token to one
 organization keeps a leaked token away from your others, and `org` must then
 match it.
+
+One exception to reading with a read scope: the `uptimepage_heartbeat` data
+source needs `targets:write`. Its ping URL is a capability rather than a fact
+about the monitor, so the API guards it as a write even though the request is
+a GET.
 
 {{ .SchemaMarkdown | trimspace }}
