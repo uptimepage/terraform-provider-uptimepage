@@ -65,15 +65,18 @@ resource "uptimepage_target" "db" {
 }
 
 # ICMP echo check. Reaches a host that answers no TCP port at all, such as a
-# gateway or a bare VM.
-resource "uptimepage_target" "gateway" {
-  name     = "office gateway"
+# bare VM or an appliance. The host has to be publicly routable: the SSRF guard
+# refuses loopback, private and link-local addresses unless the instance sets
+# security.allow_private_targets, so this cannot reach a LAN gateway on the
+# hosted service.
+resource "uptimepage_target" "edge_router" {
+  name     = "edge router"
   interval = 60
 
   check = {
     type = "ping"
     ping = {
-      host = "gateway.example.com"
+      host = "edge.example.com"
     }
   }
 }
