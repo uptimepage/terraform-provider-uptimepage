@@ -86,6 +86,10 @@ func TestCheckSpec_VariantsRoundTrip(t *testing.T) {
 			[]string{"type", "host", "port", "timeout"}},
 		"ping": {CheckSpec{Type: CheckTypePing, Ping: &PingCheck{Host: "gateway.example.com", Timeout: 3000}},
 			[]string{"type", "host", "timeout"}},
+		// max_runtime is omitted when unset: the API reads absent as "bounded
+		// by period+grace" and rejects a zero.
+		"heartbeat": {CheckSpec{Type: CheckTypeHeartbeat, Heartbeat: &HeartbeatCheck{Period: 300000, Grace: 60000}},
+			[]string{"type", "period", "grace"}},
 		"tls_cert": {CheckSpec{Type: CheckTypeTLSCert, TLSCert: &TLSCertCheck{Host: "x", Port: 443, WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
 			[]string{"type", "host", "port", "server_name", "warn_days", "critical_days", "timeout"}},
 		"domain_expiry": {CheckSpec{Type: CheckTypeDomainExpiry, DomainExpiry: &DomainExpiryCheck{Domain: "x.com", WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
@@ -317,5 +321,52 @@ func TestChannelConfig_TelegramAppIsManaged(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cannot be managed by Terraform") {
 		t.Fatalf("error should explain the managed kind, got: %v", err)
+	}
+}
+
+// max_runtime is the only optional field on the heartbeat wire, and the API
+// distinguishes absent from zero, so its presence is worth pinning separately
+// from the round-trip.
+func TestHeartbeatMaxRuntimeIsOmittedWhenUnset(t *testing.T) {
+	ms := uint64(900000)
+	for _, c := range []struct {
+		spec CheckSpec
+		want []string
+		why  string
+	}{
+		{CheckSpec{Type: CheckTypeHeartbeat, Heartbeat: &HeartbeatCheck{Period: 300000, Grace: 60000}},
+			[]string{"grace", "period", "type"}, "unset"},
+		{CheckSpec{Type: CheckTypeHeartbeat, Heartbeat: &HeartbeatCheck{Period: 300000, Grace: 60000, MaxRuntime: &ms}},
+			[]string{"grace", "max_runtime", "period", "type"}, "set"},
+	} {
+		t.Run(c.why, func(t *testing.T) {
+			raw, err := json.Marshal(c.spec)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			var m map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &m); err != nil {
+				t.Fatalf("to map: %v", err)
+			}
+			got := make([]string, 0, len(m))
+			for k := range m {
+				got = append(got, k)
+			}
+			sort.Strings(got)
+			if !slices.Equal(got, c.want) {
+				t.Errorf("payload keys = %v, want %v", got, c.want)
+			}
+
+			var back CheckSpec
+			if err := json.Unmarshal(raw, &back); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if back.Heartbeat == nil {
+				t.Fatal("heartbeat variant lost on decode")
+			}
+			if (back.Heartbeat.MaxRuntime == nil) != (c.spec.Heartbeat.MaxRuntime == nil) {
+				t.Errorf("max_runtime presence changed: %v", back.Heartbeat.MaxRuntime)
+			}
+		})
 	}
 }

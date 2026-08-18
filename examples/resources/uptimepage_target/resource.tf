@@ -64,6 +64,23 @@ resource "uptimepage_target" "db" {
   }
 }
 
+# Inbound dead-man's-switch. Nothing is sent to this monitor: the job reports
+# in, and silence past period_ms + grace_ms opens an incident. Read the URL the
+# job posts to with the uptimepage_heartbeat data source.
+resource "uptimepage_target" "nightly_backup" {
+  name = "nightly backup"
+  # How often the deadline is checked, not how often the job runs.
+  interval = 300
+
+  check = {
+    type = "heartbeat"
+    heartbeat = {
+      period_ms = 86400000
+      grace_ms  = 3600000
+    }
+  }
+}
+
 # ICMP echo check. Reaches a host that answers no TCP port at all, such as a
 # bare VM or an appliance. The host has to be publicly routable: the SSRF guard
 # refuses loopback, private and link-local addresses unless the instance sets

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -701,5 +702,175 @@ func TestExpiryDaysRangeMatchesTheAPI(t *testing.T) {
 	// tls_cert and domain_expiry, warn and critical each.
 	if walked != 4 {
 		t.Errorf("walked %d expiry-day attributes, want 4", walked)
+	}
+}
+
+// The heartbeat block round-trips through the wire mapper, and max_runtime_ms
+// keeps its absence: the API reads an absent max_runtime as "bounded by
+// period+grace" and rejects a zero, so a null must not become 0.
+func TestHeartbeatToWireAndBack(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []struct {
+		maxRuntime types.Int64
+		why        string
+	}{
+		{types.Int64Null(), "max_runtime omitted"},
+		{types.Int64Value(900000), "max_runtime set"},
+	} {
+		t.Run(c.why, func(t *testing.T) {
+			cm := checkModel{
+				Type: types.StringValue(client.CheckTypeHeartbeat),
+				Heartbeat: &heartbeatCheckModel{
+					PeriodMs:     types.Int64Value(300000),
+					GraceMs:      types.Int64Value(60000),
+					MaxRuntimeMs: c.maxRuntime,
+				},
+			}
+			spec, diags := cm.toWire(ctx)
+			if diags.HasError() {
+				t.Fatalf("toWire: %v", diags)
+			}
+			if spec.Heartbeat == nil {
+				t.Fatal("heartbeat payload missing")
+			}
+			if spec.Heartbeat.Period != 300000 || spec.Heartbeat.Grace != 60000 {
+				t.Errorf("period/grace wrong: %+v", spec.Heartbeat)
+			}
+			if (spec.Heartbeat.MaxRuntime == nil) != c.maxRuntime.IsNull() {
+				t.Errorf("max_runtime presence wrong: %v", spec.Heartbeat.MaxRuntime)
+			}
+
+			back, d := checkToModel(ctx, checkModel{}, spec)
+			if d.HasError() {
+				t.Fatalf("checkToModel: %v", d)
+			}
+			if back.Heartbeat == nil {
+				t.Fatal("heartbeat model missing on the way back")
+			}
+			if !back.Heartbeat.MaxRuntimeMs.Equal(c.maxRuntime) {
+				t.Errorf("max_runtime_ms = %v, want %v", back.Heartbeat.MaxRuntimeMs, c.maxRuntime)
+			}
+		})
+	}
+}
+
+// An interval coarser than period+grace steps over the deadline, and one under
+// a minute is finer than evaluation runs. Both are API rejections today.
+func TestValidateHeartbeatCadence(t *testing.T) {
+	hb := func(period, grace int64) *heartbeatCheckModel {
+		return &heartbeatCheckModel{
+			PeriodMs: types.Int64Value(period),
+			GraceMs:  types.Int64Value(grace),
+		}
+	}
+	for _, c := range []struct {
+		interval int64
+		hb       *heartbeatCheckModel
+		wantErr  bool
+		why      string
+	}{
+		{60, hb(300000, 60000), false, "interval well inside the window"},
+		{360, hb(300000, 60000), false, "interval exactly the window"},
+		{361, hb(300000, 60000), true, "interval one second past the window"},
+		{60, hb(60000, 0), false, "tightest window the API allows"},
+		{59, hb(300000, 60000), true, "below the once-a-minute floor"},
+	} {
+		t.Run(c.why, func(t *testing.T) {
+			var d diag.Diagnostics
+			validateHeartbeatCadence(types.Int64Value(c.interval), c.hb, &d)
+			if got := d.HasError(); got != c.wantErr {
+				t.Errorf("interval=%d: error=%v, want %v (%v)", c.interval, got, c.wantErr, d)
+			}
+		})
+	}
+
+	// Unknown values resolve at apply, so flagging them fails plans that are fine.
+	for _, c := range []struct {
+		interval types.Int64
+		hb       *heartbeatCheckModel
+		why      string
+	}{
+		{types.Int64Unknown(), hb(300000, 60000), "unknown interval"},
+		{types.Int64Value(60), &heartbeatCheckModel{PeriodMs: types.Int64Unknown(), GraceMs: types.Int64Value(0)}, "unknown period"},
+		{types.Int64Value(60), &heartbeatCheckModel{PeriodMs: types.Int64Value(300000), GraceMs: types.Int64Unknown()}, "unknown grace"},
+	} {
+		t.Run(c.why, func(t *testing.T) {
+			var d diag.Diagnostics
+			validateHeartbeatCadence(c.interval, c.hb, &d)
+			if d.HasError() {
+				t.Errorf("%s should defer to apply: %v", c.why, d)
+			}
+		})
+	}
+}
+
+// checkKinds drives the type validator, so a kind listed there without a
+// matching nested attribute is accepted by `type` and then rejected as an
+// unsupported argument. The presence-map guard above cannot see that.
+func TestEveryAcceptedCheckKindHasASchemaBlock(t *testing.T) {
+	var resp resource.SchemaResponse
+	(&targetResource{}).Schema(context.Background(), resource.SchemaRequest{}, &resp)
+	check := resp.Schema.Attributes["check"].(schema.SingleNestedAttribute)
+	for _, kind := range checkKinds() {
+		attr, ok := check.Attributes[kind]
+		if !ok {
+			t.Errorf("check kind %q is accepted by the type validator but has no %q block", kind, kind)
+			continue
+		}
+		if _, ok := attr.(schema.SingleNestedAttribute); !ok {
+			t.Errorf("check.%s is not a nested block", kind)
+		}
+	}
+}
+
+// The API 422s the regions PUT for a passive check. Left to apply, the target
+// is created first and only then refused its regions, so the plan has to catch
+// it. The docs claimed regions were merely a no-op here, which was wrong.
+func TestHeartbeatRejectsRegionsAtPlanTime(t *testing.T) {
+	set := func(vals ...string) types.Set {
+		elems := make([]attr.Value, len(vals))
+		for i, v := range vals {
+			elems[i] = types.StringValue(v)
+		}
+		return types.SetValueMust(types.StringType, elems)
+	}
+	heartbeat := checkModel{
+		Type: types.StringValue(client.CheckTypeHeartbeat),
+		Heartbeat: &heartbeatCheckModel{
+			PeriodMs: types.Int64Value(300000),
+			GraceMs:  types.Int64Value(60000),
+		},
+	}
+
+	for _, c := range []struct {
+		check   checkModel
+		regions types.Set
+		wantErr bool
+		why     string
+	}{
+		{heartbeat, set(), true, "an explicitly empty region set on a heartbeat"},
+		{heartbeat, set("eu-helsinki"), true, "one region on a heartbeat"},
+		{heartbeat, types.SetNull(types.StringType), false, "regions omitted"},
+		{heartbeat, types.SetUnknown(types.StringType), false, "unknown defers to apply"},
+		{
+			checkModel{Type: types.StringValue(client.CheckTypeTCP), TCP: &tcpCheckModel{
+				Host: types.StringValue("db"), Port: types.Int64Value(5432), TimeoutMs: types.Int64Value(3000),
+			}},
+			set("eu-helsinki"), false, "regions on a probed kind are fine",
+		},
+	} {
+		t.Run(c.why, func(t *testing.T) {
+			cfg := targetModel{
+				Name:     types.StringValue("x"),
+				Interval: types.Int64Value(60),
+				Check:    c.check,
+				Regions:  c.regions,
+			}
+			var d diag.Diagnostics
+			validateTargetConfig(cfg, &d)
+			if got := d.HasError(); got != c.wantErr {
+				t.Errorf("error=%v, want %v (%v)", got, c.wantErr, d)
+			}
+		})
 	}
 }

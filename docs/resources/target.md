@@ -79,6 +79,23 @@ resource "uptimepage_target" "db" {
   }
 }
 
+# Inbound dead-man's-switch. Nothing is sent to this monitor: the job reports
+# in, and silence past period_ms + grace_ms opens an incident. Read the URL the
+# job posts to with the uptimepage_heartbeat data source.
+resource "uptimepage_target" "nightly_backup" {
+  name = "nightly backup"
+  # How often the deadline is checked, not how often the job runs.
+  interval = 300
+
+  check = {
+    type = "heartbeat"
+    heartbeat = {
+      period_ms = 86400000
+      grace_ms  = 3600000
+    }
+  }
+}
+
 # ICMP echo check. Reaches a host that answers no TCP port at all, such as a
 # bare VM or an appliance. The host has to be publicly routable: the SSRF guard
 # refuses loopback, private and link-local addresses unless the instance sets
@@ -175,7 +192,7 @@ resource "uptimepage_target" "login" {
 ### Required
 
 - `check` (Attributes) Check definition. Set `type` and the matching nested block. (see [below for nested schema](#nestedatt--check))
-- `interval` (Number) Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side: domain_expiry rejects anything under 43200 because RDAP rate-limits by source address, tls_cert under 3600, flow under 300. Expiry checks watch state that moves in days, so 43200 for tls_cert and 86400 for domain_expiry are the usual cadences.
+- `interval` (Number) Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side: domain_expiry rejects anything under 43200 because RDAP rate-limits by source address, tls_cert under 3600, flow under 300, heartbeat under 60. Expiry checks watch state that moves in days, so 43200 for tls_cert and 86400 for domain_expiry are the usual cadences.
 - `name` (String) Human-readable target name.
 
 ### Optional
@@ -196,13 +213,14 @@ resource "uptimepage_target" "login" {
 
 Required:
 
-- `type` (String) Check type: http, tcp, ping, tls_cert, domain_expiry, dns, flow.
+- `type` (String) Check type: http, tcp, ping, heartbeat, tls_cert, domain_expiry, dns, flow.
 
 Optional:
 
 - `dns` (Attributes) DNS resolution check (when type = dns). (see [below for nested schema](#nestedatt--check--dns))
 - `domain_expiry` (Attributes) Domain registration expiry check (when type = domain_expiry). warn_days must be greater than critical_days. (see [below for nested schema](#nestedatt--check--domain_expiry))
 - `flow` (Attributes) Browser login/transaction flow check (when type = flow). Runs only where a browser engine is available, so its regions clamp to the flow-capable set. (see [below for nested schema](#nestedatt--check--flow))
+- `heartbeat` (Attributes) Inbound dead-man's-switch (when type = heartbeat). The job reports in; silence past period_ms + grace_ms opens an incident. Read its ping URL with the uptimepage_heartbeat data source. Nothing is sent to a heartbeat, so the API rejects regions on one. (see [below for nested schema](#nestedatt--check--heartbeat))
 - `http` (Attributes) HTTP(S) check (when type = http). (see [below for nested schema](#nestedatt--check--http))
 - `ping` (Attributes) ICMP echo check (when type = ping). No port: an echo request is not addressed to one. (see [below for nested schema](#nestedatt--check--ping))
 - `tcp` (Attributes) TCP connect check (when type = tcp). (see [below for nested schema](#nestedatt--check--tcp))
@@ -265,6 +283,19 @@ Optional:
 - `url` (String) Navigation URL (op = goto).
 - `value` (String, Sensitive) Text to fill (op = fill). The API redacts it on read, so external changes are not detected. Reference an org secret as {{name}} for credentials.
 
+
+
+<a id="nestedatt--check--heartbeat"></a>
+### Nested Schema for `check.heartbeat`
+
+Required:
+
+- `grace_ms` (Number) Allowance past period_ms before the monitor counts as down, in milliseconds (0..2592000000).
+- `period_ms` (Number) Expected reporting cadence in milliseconds (60000..2592000000). Evaluation runs no finer than once a minute, which sets the floor.
+
+Optional:
+
+- `max_runtime_ms` (Number) Cap on one run's /start to finish time in milliseconds (60000..2592000000). Omit to leave a run bounded only by period_ms + grace_ms.
 
 
 <a id="nestedatt--check--http"></a>

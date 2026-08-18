@@ -36,14 +36,15 @@ type alertModel struct {
 // checkModel is the discriminated check block: Type names the active variant
 // and exactly one of the per-type pointers is set.
 type checkModel struct {
-	Type         types.String       `tfsdk:"type"`
-	HTTP         *httpCheckModel    `tfsdk:"http"`
-	TCP          *tcpCheckModel     `tfsdk:"tcp"`
-	Ping         *pingCheckModel    `tfsdk:"ping"`
-	TLSCert      *tlsCertCheckModel `tfsdk:"tls_cert"`
-	DomainExpiry *domainExpiryModel `tfsdk:"domain_expiry"`
-	DNS          *dnsCheckModel     `tfsdk:"dns"`
-	Flow         *flowCheckModel    `tfsdk:"flow"`
+	Type         types.String         `tfsdk:"type"`
+	HTTP         *httpCheckModel      `tfsdk:"http"`
+	TCP          *tcpCheckModel       `tfsdk:"tcp"`
+	Ping         *pingCheckModel      `tfsdk:"ping"`
+	Heartbeat    *heartbeatCheckModel `tfsdk:"heartbeat"`
+	TLSCert      *tlsCertCheckModel   `tfsdk:"tls_cert"`
+	DomainExpiry *domainExpiryModel   `tfsdk:"domain_expiry"`
+	DNS          *dnsCheckModel       `tfsdk:"dns"`
+	Flow         *flowCheckModel      `tfsdk:"flow"`
 }
 
 type httpCheckModel struct {
@@ -72,6 +73,12 @@ type tcpCheckModel struct {
 type pingCheckModel struct {
 	Host      types.String `tfsdk:"host"`
 	TimeoutMs types.Int64  `tfsdk:"timeout_ms"`
+}
+
+type heartbeatCheckModel struct {
+	PeriodMs     types.Int64 `tfsdk:"period_ms"`
+	GraceMs      types.Int64 `tfsdk:"grace_ms"`
+	MaxRuntimeMs types.Int64 `tfsdk:"max_runtime_ms"`
 }
 
 type tlsCertCheckModel struct {
@@ -241,6 +248,21 @@ func (c checkModel) toWire(ctx context.Context) (client.CheckSpec, diag.Diagnost
 			Host:    c.Ping.Host.ValueString(),
 			Timeout: uint64(c.Ping.TimeoutMs.ValueInt64()),
 		}
+	case client.CheckTypeHeartbeat:
+		if c.Heartbeat == nil {
+			return out, missingBlock(kind)
+		}
+		hb := &client.HeartbeatCheck{
+			Period: uint64(c.Heartbeat.PeriodMs.ValueInt64()),
+			Grace:  uint64(c.Heartbeat.GraceMs.ValueInt64()),
+		}
+		// Omitted rather than zero: the API reads absent as "bounded by
+		// period+grace" and rejects a zero max_runtime.
+		if !c.Heartbeat.MaxRuntimeMs.IsNull() && !c.Heartbeat.MaxRuntimeMs.IsUnknown() {
+			ms := uint64(c.Heartbeat.MaxRuntimeMs.ValueInt64())
+			hb.MaxRuntime = &ms
+		}
+		out.Heartbeat = hb
 	case client.CheckTypeTLSCert:
 		if c.TLSCert == nil {
 			return out, missingBlock(kind)
@@ -457,6 +479,15 @@ func checkToModel(ctx context.Context, prior checkModel, spec client.CheckSpec) 
 		out.Ping = &pingCheckModel{
 			Host:      types.StringValue(spec.Ping.Host),
 			TimeoutMs: types.Int64Value(int64(spec.Ping.Timeout)),
+		}
+	case spec.Heartbeat != nil:
+		out.Heartbeat = &heartbeatCheckModel{
+			PeriodMs:     types.Int64Value(int64(spec.Heartbeat.Period)),
+			GraceMs:      types.Int64Value(int64(spec.Heartbeat.Grace)),
+			MaxRuntimeMs: types.Int64Null(),
+		}
+		if spec.Heartbeat.MaxRuntime != nil {
+			out.Heartbeat.MaxRuntimeMs = types.Int64Value(int64(*spec.Heartbeat.MaxRuntime))
 		}
 	case spec.TLSCert != nil:
 		out.TLSCert = &tlsCertCheckModel{

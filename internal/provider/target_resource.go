@@ -80,7 +80,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"interval": schema.Int64Attribute{
 				Required:    true,
-				Description: "Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side: domain_expiry rejects anything under 43200 because RDAP rate-limits by source address, tls_cert under 3600, flow under 300. Expiry checks watch state that moves in days, so 43200 for tls_cert and 86400 for domain_expiry are the usual cadences.",
+				Description: "Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side: domain_expiry rejects anything under 43200 because RDAP rate-limits by source address, tls_cert under 3600, flow under 300, heartbeat under 60. Expiry checks watch state that moves in days, so 43200 for tls_cert and 86400 for domain_expiry are the usual cadences.",
 				Validators:  []validator.Int64{int64validator.AtLeast(10)},
 			},
 			"enabled": schema.BoolAttribute{
@@ -160,6 +160,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 					},
 					"tcp":           tcpCheckAttribute(),
 					"ping":          pingCheckAttribute(),
+					"heartbeat":     heartbeatCheckAttribute(),
 					"tls_cert":      tlsCertCheckAttribute(),
 					"domain_expiry": domainExpiryCheckAttribute(),
 					"dns":           dnsCheckAttribute(),
@@ -365,8 +366,8 @@ func tcpCheckAttribute() schema.Attribute {
 func checkKinds() []string {
 	return []string{
 		client.CheckTypeHTTP, client.CheckTypeTCP, client.CheckTypePing,
-		client.CheckTypeTLSCert, client.CheckTypeDomainExpiry, client.CheckTypeDNS,
-		client.CheckTypeFlow,
+		client.CheckTypeHeartbeat, client.CheckTypeTLSCert, client.CheckTypeDomainExpiry,
+		client.CheckTypeDNS, client.CheckTypeFlow,
 	}
 }
 
@@ -376,10 +377,39 @@ func checkBlocksPresent(c checkModel) map[string]bool {
 		client.CheckTypeHTTP:         c.HTTP != nil,
 		client.CheckTypeTCP:          c.TCP != nil,
 		client.CheckTypePing:         c.Ping != nil,
+		client.CheckTypeHeartbeat:    c.Heartbeat != nil,
 		client.CheckTypeTLSCert:      c.TLSCert != nil,
 		client.CheckTypeDomainExpiry: c.DomainExpiry != nil,
 		client.CheckTypeDNS:          c.DNS != nil,
 		client.CheckTypeFlow:         c.Flow != nil,
+	}
+}
+
+// The window is period+grace: a job that has not reported by then opens an
+// incident. max_runtime bounds one run instead, for a job that opens a run with
+// /start and then hangs.
+func heartbeatCheckAttribute() schema.Attribute {
+	const day30 = 30 * 24 * 3600 * 1000
+	return schema.SingleNestedAttribute{
+		Optional:    true,
+		Description: "Inbound dead-man's-switch (when type = heartbeat). The job reports in; silence past period_ms + grace_ms opens an incident. Read its ping URL with the uptimepage_heartbeat data source. Nothing is sent to a heartbeat, so the API rejects regions on one.",
+		Attributes: map[string]schema.Attribute{
+			"period_ms": schema.Int64Attribute{
+				Required:    true,
+				Description: "Expected reporting cadence in milliseconds (60000..2592000000). Evaluation runs no finer than once a minute, which sets the floor.",
+				Validators:  []validator.Int64{int64validator.Between(60_000, day30)},
+			},
+			"grace_ms": schema.Int64Attribute{
+				Required:    true,
+				Description: "Allowance past period_ms before the monitor counts as down, in milliseconds (0..2592000000).",
+				Validators:  []validator.Int64{int64validator.Between(0, day30)},
+			},
+			"max_runtime_ms": schema.Int64Attribute{
+				Optional:    true,
+				Description: "Cap on one run's /start to finish time in milliseconds (60000..2592000000). Omit to leave a run bounded only by period_ms + grace_ms.",
+				Validators:  []validator.Int64{int64validator.Between(60_000, day30)},
+			},
+		},
 	}
 }
 
@@ -685,41 +715,99 @@ func graftWriteOnlySecrets(plan *targetModel, cfg targetModel) {
 	}
 }
 
-// ValidateConfig enforces that exactly the nested block matching check.type is
-// set, surfaced at plan time rather than as an apply-time API error.
+// ValidateConfig moves the API's cross-field rules to plan time, so a config
+// the server would refuse fails before anything is created.
 func (r *targetResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
 	var cfg targetModel
 	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	validateTargetConfig(cfg, &resp.Diagnostics)
+}
+
+// Split from the framework plumbing so the rules can be exercised against a
+// model rather than a hand-built tfsdk.Config.
+func validateTargetConfig(cfg targetModel, diags *diag.Diagnostics) {
 	// Null/unknown type: let the framework's Required validator own that error.
-	if resp.Diagnostics.HasError() || cfg.Check.Type.IsUnknown() || cfg.Check.Type.IsNull() {
+	if cfg.Check.Type.IsUnknown() || cfg.Check.Type.IsNull() {
 		return
 	}
 	validateDiscriminatedBlock(path.Root("check"), cfg.Check.Type.ValueString(),
-		checkBlocksPresent(cfg.Check), &resp.Diagnostics)
+		checkBlocksPresent(cfg.Check), diags)
 
 	if cfg.Check.Type.ValueString() == client.CheckTypeFlow && cfg.Check.Flow != nil {
-		validateFlowSteps(cfg.Check.Flow.Steps, &resp.Diagnostics)
+		validateFlowSteps(cfg.Check.Flow.Steps, diags)
 	}
 
-	switch {
-	case cfg.Check.TLSCert != nil:
-		validateExpiryDays(path.Root("check").AtName("tls_cert"),
-			cfg.Check.TLSCert.WarnDays, cfg.Check.TLSCert.CriticalDays, &resp.Diagnostics)
-	case cfg.Check.DomainExpiry != nil:
-		validateExpiryDays(path.Root("check").AtName("domain_expiry"),
-			cfg.Check.DomainExpiry.WarnDays, cfg.Check.DomainExpiry.CriticalDays, &resp.Diagnostics)
+	// Keyed on the declared kind, not on which block happens to be set: a
+	// stray block of another kind is already the discriminator's error, and
+	// checking it again here would pile a second, unrelated one on top.
+	switch cfg.Check.Type.ValueString() {
+	case client.CheckTypeHeartbeat:
+		if cfg.Check.Heartbeat != nil {
+			validateHeartbeatCadence(cfg.Interval, cfg.Check.Heartbeat, diags)
+		}
+		// The API 422s the regions PUT for a passive check. Left to apply, the
+		// target is created first and only then refused its regions.
+		if !cfg.Regions.IsNull() && !cfg.Regions.IsUnknown() {
+			diags.AddAttributeError(path.Root("regions"),
+				"A heartbeat is not probed from regions",
+				"Nothing is sent to a heartbeat, so the API rejects regions on one. Remove "+
+					"the regions argument.")
+		}
+	case client.CheckTypeTLSCert:
+		if cfg.Check.TLSCert != nil {
+			validateExpiryDays(path.Root("check").AtName("tls_cert"),
+				cfg.Check.TLSCert.WarnDays, cfg.Check.TLSCert.CriticalDays, diags)
+		}
+	case client.CheckTypeDomainExpiry:
+		if cfg.Check.DomainExpiry != nil {
+			validateExpiryDays(path.Root("check").AtName("domain_expiry"),
+				cfg.Check.DomainExpiry.WarnDays, cfg.Check.DomainExpiry.CriticalDays, diags)
+		}
 	}
 
 	// ConflictsWith rules out both; this rules out neither.
 	if cfg.Check.HTTP != nil && cfg.Check.HTTP.BasicAuth != nil {
 		ba := cfg.Check.HTTP.BasicAuth
 		if ba.Password.IsNull() && ba.PasswordWo.IsNull() {
-			resp.Diagnostics.AddAttributeError(
+			diags.AddAttributeError(
 				path.Root("check").AtName("http").AtName("basic_auth"),
 				"Missing basic auth password",
 				"Set either password (persisted to Terraform state) or password_wo with password_wo_version (write-only, Terraform 1.11+).",
 			)
 		}
+	}
+}
+
+// validateHeartbeatCadence enforces that the check interval can actually see
+// the window it judges. An interval coarser than period+grace steps straight
+// over the deadline, so the monitor reports late or not at all.
+func validateHeartbeatCadence(interval types.Int64, hb *heartbeatCheckModel, diags *diag.Diagnostics) {
+	if interval.IsNull() || interval.IsUnknown() ||
+		hb.PeriodMs.IsNull() || hb.PeriodMs.IsUnknown() ||
+		hb.GraceMs.IsNull() || hb.GraceMs.IsUnknown() {
+		return
+	}
+	// Evaluation runs once a minute, so a tighter interval buys nothing and
+	// the API refuses it.
+	if interval.ValueInt64() < 60 {
+		diags.AddAttributeError(path.Root("interval"),
+			"Check interval is below the heartbeat floor",
+			fmt.Sprintf("interval is %ds, but a heartbeat is evaluated no more than once a "+
+				"minute, so the API rejects anything under 60.", interval.ValueInt64()))
+		return
+	}
+	// The API compares whole seconds, so match its truncation rather than
+	// rejecting a config it would accept.
+	window := hb.PeriodMs.ValueInt64()/1000 + hb.GraceMs.ValueInt64()/1000
+	if interval.ValueInt64() > window {
+		diags.AddAttributeError(path.Root("interval"),
+			"Check interval is longer than the heartbeat window",
+			fmt.Sprintf("interval is %ds but period_ms + grace_ms is only %ds, so the deadline "+
+				"can pass unseen. Lower the interval or raise period_ms.",
+				interval.ValueInt64(), window))
 	}
 }
 

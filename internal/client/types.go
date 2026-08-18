@@ -98,6 +98,15 @@ type PingCheck struct {
 	Timeout uint64 `json:"timeout"` // milliseconds
 }
 
+// HeartbeatCheck is the inbound variant: the job reports in, and silence past
+// period+grace opens an incident. max_runtime is omitted when unset, which
+// leaves a run bounded only by that same window.
+type HeartbeatCheck struct {
+	Period     uint64  `json:"period"`                // milliseconds
+	Grace      uint64  `json:"grace"`                 // milliseconds
+	MaxRuntime *uint64 `json:"max_runtime,omitempty"` // milliseconds
+}
+
 // TLSCertCheck verifies a certificate and warns/fails on imminent expiry.
 type TLSCertCheck struct {
 	Host         string  `json:"host"`
@@ -227,6 +236,7 @@ type CheckSpec struct {
 	HTTP         *HTTPCheck         `json:"-"`
 	TCP          *TCPCheck          `json:"-"`
 	Ping         *PingCheck         `json:"-"`
+	Heartbeat    *HeartbeatCheck    `json:"-"`
 	TLSCert      *TLSCertCheck      `json:"-"`
 	DomainExpiry *DomainExpiryCheck `json:"-"`
 	DNS          *DNSCheck          `json:"-"`
@@ -237,6 +247,7 @@ const (
 	CheckTypeHTTP         = "http"
 	CheckTypeTCP          = "tcp"
 	CheckTypePing         = "ping"
+	CheckTypeHeartbeat    = "heartbeat"
 	CheckTypeTLSCert      = "tls_cert"
 	CheckTypeDomainExpiry = "domain_expiry"
 	CheckTypeDNS          = "dns"
@@ -275,6 +286,14 @@ func (c CheckSpec) MarshalJSON() ([]byte, error) {
 			Type string `json:"type"`
 			PingCheck
 		}{c.Type, *c.Ping})
+	case CheckTypeHeartbeat:
+		if c.Heartbeat == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			HeartbeatCheck
+		}{c.Type, *c.Heartbeat})
 	case CheckTypeTLSCert:
 		if c.TLSCert == nil {
 			return nil, errNilPayload(c.Type)
@@ -341,6 +360,9 @@ func (c *CheckSpec) UnmarshalJSON(data []byte) error {
 	case CheckTypePing:
 		c.Ping = new(PingCheck)
 		return json.Unmarshal(data, c.Ping)
+	case CheckTypeHeartbeat:
+		c.Heartbeat = new(HeartbeatCheck)
+		return json.Unmarshal(data, c.Heartbeat)
 	case CheckTypeTLSCert:
 		c.TLSCert = new(TLSCertCheck)
 		return json.Unmarshal(data, c.TLSCert)
