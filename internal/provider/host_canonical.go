@@ -60,10 +60,16 @@ func classifyHost(raw string) (hostVerdict, string) {
 		}
 	}
 
-	// An IP has no host shape to canonicalise, so the API keeps it verbatim
-	// after unbracketing.
-	if net.ParseIP(host) != nil {
-		return hostVerdictFor(raw, host)
+	// An IP takes no IDN processing, but the API does store the parsed
+	// address, so "2001:db8:0:0::1" comes back as "2001:db8::1".
+	if ip := net.ParseIP(host); ip != nil {
+		// net.ParseIP collapses a v4-mapped address to its dotted form, where
+		// the API keeps the ::ffff: prefix. Predicting from this would name a
+		// different address, so leave those to the apply.
+		if ip.To4() != nil && strings.Contains(host, ":") {
+			return hostUnpredictable, ""
+		}
+		return hostVerdictFor(raw, ip.String())
 	}
 
 	host = strings.TrimRight(host, ".")
