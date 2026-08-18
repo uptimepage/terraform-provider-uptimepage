@@ -523,3 +523,88 @@ func TestEveryAcceptedCheckKindHasABlock(t *testing.T) {
 		t.Errorf("presence map has %d entries, schema accepts %d", len(present), len(checkKinds()))
 	}
 }
+
+// The API parses start_url and every goto url and re-serialises them, so a URL
+// written without a path reads back with a trailing slash. Echoing that into
+// state fails Terraform's post-apply consistency check on a Required
+// attribute, which is the failure http.url already avoids with keepURL.
+func TestFlowToModel_KeepsTheConfiguredURLForm(t *testing.T) {
+	ctx := context.Background()
+	prior := checkModel{Type: types.StringValue(client.CheckTypeFlow), Flow: &flowCheckModel{
+		StartURL: types.StringValue("https://app.example.com"),
+		Steps: []flowStepModel{
+			{Op: types.StringValue(client.FlowOpGoto), URL: types.StringValue("https://app.example.com/x")},
+			{Op: types.StringValue(client.FlowOpGoto), URL: types.StringValue("https://other.example.com")},
+		},
+	}}
+	spec := client.CheckSpec{Type: client.CheckTypeFlow, Flow: &client.FlowCheck{
+		StartURL: "https://app.example.com/",
+		Steps: []client.FlowStep{
+			{Op: client.FlowOpGoto, URL: "https://app.example.com/x"},
+			{Op: client.FlowOpGoto, URL: "https://other.example.com/"},
+		},
+		Timeout: 30000, StepTimeout: 5000, VerifyTLS: true,
+	}}
+
+	got, d := checkToModel(ctx, prior, spec)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if s := got.Flow.StartURL.ValueString(); s != "https://app.example.com" {
+		t.Errorf("start_url = %q, want the configured form back", s)
+	}
+	if s := got.Flow.Steps[0].URL.ValueString(); s != "https://app.example.com/x" {
+		t.Errorf("goto url with a path changed: %q", s)
+	}
+	if s := got.Flow.Steps[1].URL.ValueString(); s != "https://other.example.com" {
+		t.Errorf("goto url = %q, want the configured form back", s)
+	}
+}
+
+// Drift is not canonicalisation. A server URL that is a different address has
+// to reach state, or the provider hides an out-of-band change.
+func TestFlowToModel_RealDriftStillSurfaces(t *testing.T) {
+	ctx := context.Background()
+	prior := checkModel{Type: types.StringValue(client.CheckTypeFlow), Flow: &flowCheckModel{
+		StartURL: types.StringValue("https://app.example.com"),
+		Steps: []flowStepModel{
+			{Op: types.StringValue(client.FlowOpGoto), URL: types.StringValue("https://app.example.com/x")},
+		},
+	}}
+	spec := client.CheckSpec{Type: client.CheckTypeFlow, Flow: &client.FlowCheck{
+		StartURL: "https://moved.example.com/",
+		Steps:    []client.FlowStep{{Op: client.FlowOpGoto, URL: "https://app.example.com/y"}},
+		Timeout:  30000, StepTimeout: 5000, VerifyTLS: true,
+	}}
+
+	got, d := checkToModel(ctx, prior, spec)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if s := got.Flow.StartURL.ValueString(); s != "https://moved.example.com/" {
+		t.Errorf("start_url drift swallowed: %q", s)
+	}
+	if s := got.Flow.Steps[0].URL.ValueString(); s != "https://app.example.com/y" {
+		t.Errorf("goto url drift swallowed: %q", s)
+	}
+}
+
+// A create has no prior state, so the server value is all there is.
+func TestFlowToModel_NoPriorTakesTheServerValue(t *testing.T) {
+	ctx := context.Background()
+	spec := client.CheckSpec{Type: client.CheckTypeFlow, Flow: &client.FlowCheck{
+		StartURL: "https://app.example.com/",
+		Steps:    []client.FlowStep{{Op: client.FlowOpGoto, URL: "https://app.example.com/x"}},
+		Timeout:  30000, StepTimeout: 5000, VerifyTLS: true,
+	}}
+	got, d := checkToModel(ctx, checkModel{}, spec)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if s := got.Flow.StartURL.ValueString(); s != "https://app.example.com/" {
+		t.Errorf("start_url = %q, want the server value", s)
+	}
+	if s := got.Flow.Steps[0].URL.ValueString(); s != "https://app.example.com/x" {
+		t.Errorf("goto url = %q, want the server value", s)
+	}
+}

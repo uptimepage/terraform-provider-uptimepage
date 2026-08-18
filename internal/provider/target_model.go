@@ -491,8 +491,14 @@ func checkToModel(ctx context.Context, prior checkModel, spec client.CheckSpec) 
 }
 
 func flowToModel(prior *flowCheckModel, f *client.FlowCheck) *flowCheckModel {
+	priorStart := types.StringNull()
+	if prior != nil {
+		priorStart = prior.StartURL
+	}
 	out := &flowCheckModel{
-		StartURL:      types.StringValue(f.StartURL),
+		// The API parses start_url and re-serialises it, so "https://x.com"
+		// reads back as "https://x.com/". Same reason http.url uses keepURL.
+		StartURL:      keepURL(priorStart, f.StartURL),
 		TimeoutMs:     types.Int64Value(int64(f.Timeout)),
 		StepTimeoutMs: types.Int64Value(int64(f.StepTimeout)),
 		VerifyTLS:     types.BoolValue(f.VerifyTLS),
@@ -522,7 +528,12 @@ func flowStepToModel(prior *flowStepModel, s client.FlowStep) flowStepModel {
 	}
 	switch s.Op {
 	case client.FlowOpGoto:
-		m.URL = types.StringValue(s.URL)
+		priorURL := types.StringNull()
+		if prior != nil {
+			priorURL = prior.URL
+		}
+		// Re-serialised by the API the same way start_url is.
+		m.URL = keepURL(priorURL, s.URL)
 	case client.FlowOpClick, client.FlowOpWaitFor:
 		m.Selector = fromOptString(s.Selector)
 	case client.FlowOpFill:
