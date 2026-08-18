@@ -1,4 +1,4 @@
-// Package client is the UptimePage /api/v1 transport. It turns typed Go calls
+// Package client is the Uptimepage /api/v1 transport. It turns typed Go calls
 // into authenticated HTTP requests and decodes responses + the error envelope.
 // It imports nothing from Terraform and is unit-testable against httptest.
 package client
@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// DefaultEndpoint is the public UptimePage API base, used when no endpoint is
+// DefaultEndpoint is the public Uptimepage API base, used when no endpoint is
 // configured. The hosted service serves the API on the app host; the apex
 // (uptimepage.dev) is the marketing site and 404s /api/v1.
 const DefaultEndpoint = "https://app.uptimepage.dev"

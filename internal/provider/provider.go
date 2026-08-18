@@ -51,16 +51,16 @@ func (p *Provider) Metadata(_ context.Context, _ provider.MetadataRequest, resp 
 
 func (p *Provider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manage UptimePage monitors and notification channels as code.",
+		Description: "Manage Uptimepage monitors, status pages, status page components and notification channels as code. Monitors cover HTTP, TCP, DNS, TLS certificate expiry, domain expiry and scripted browser login flows. Every resource supports import, and the provider works against the hosted service or a self-hosted instance.",
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
 				Optional:    true,
-				Description: "Base URL of the UptimePage API. Defaults to " + client.DefaultEndpoint + ". May also be set via the " + envEndpoint + " environment variable.",
+				Description: "Base URL of the Uptimepage API. Defaults to " + client.DefaultEndpoint + ". May also be set via the " + envEndpoint + " environment variable.",
 			},
 			"token": schema.StringAttribute{
 				Optional:    true,
 				Sensitive:   true,
-				Description: "API token (Bearer). Create one from the UptimePage API tokens page. May also be set via the " + envToken + " environment variable.",
+				Description: "API token (Bearer). Create one from the Uptimepage API tokens page. May also be set via the " + envToken + " environment variable.",
 			},
 			"org": schema.StringAttribute{
 				Optional:    true,
@@ -108,7 +108,7 @@ func (p *Provider) Configure(ctx context.Context, req provider.ConfigureRequest,
 		resp.Diagnostics.AddAttributeError(path.Root("token"),
 			"Missing API token",
 			"Set the provider `token` attribute or the "+envToken+" environment variable. "+
-				"Create a token from the UptimePage API tokens page (requires a verified email).")
+				"Create a token from the Uptimepage API tokens page (requires a verified email).")
 		return
 	}
 
