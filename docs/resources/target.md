@@ -210,7 +210,7 @@ Optional:
 
 Required:
 
-- `domain` (String) Name to resolve (FQDN).
+- `domain` (String) Name to resolve (FQDN). Lowercase, no trailing dot, punycode for non-ASCII.
 - `record_type` (String) DNS record type.
 
 Optional:
@@ -226,7 +226,7 @@ Optional:
 Required:
 
 - `critical_days` (Number) Fail when the domain expires within this many days.
-- `domain` (String)
+- `domain` (String) Domain whose registration expiry is read. Lowercase, no trailing dot, punycode for non-ASCII.
 - `warn_days` (Number) Warn when the domain expires within this many days.
 
 Optional:
@@ -330,7 +330,7 @@ Optional:
 
 Required:
 
-- `host` (String)
+- `host` (String) Hostname or IP to send the echo request to. Lowercase, no trailing dot, punycode for non-ASCII.
 
 Optional:
 
@@ -342,7 +342,7 @@ Optional:
 
 Required:
 
-- `host` (String)
+- `host` (String) Hostname or IP to connect to. Lowercase, no trailing dot, punycode for non-ASCII.
 - `port` (Number) Port (1..65535).
 
 Optional:
@@ -356,7 +356,7 @@ Optional:
 Required:
 
 - `critical_days` (Number) Fail when the cert expires within this many days.
-- `host` (String)
+- `host` (String) Hostname to open the TLS connection to. Lowercase, no trailing dot, punycode for non-ASCII.
 - `port` (Number) Port (1..65535).
 - `warn_days` (Number) Warn when the cert expires within this many days.
 

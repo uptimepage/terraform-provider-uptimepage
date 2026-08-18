@@ -45,6 +45,16 @@ nested block:
 Cron heartbeat monitors are not in the provider. The REST API accepts them
 today, so create those through the API or the web UI.
 
+Hosts and domains are stored in the form the API canonicalises them to:
+lowercase, no trailing dot, punycode rather than unicode, and an IPv6 literal
+without brackets. The circuit breaker and the rate throttle key on that form,
+so a host written any other way is read back as something else and fails the
+apply. For plain-ASCII hosts the provider catches that during `terraform plan`
+and names the string to write. A host holding unicode or an `xn--` label is
+left to the API, because two implementations of UTS46 do not agree closely
+enough for one to correct the other, so write those in punycode to keep the
+plan and the apply on the same string.
+
 `regions` on a target selects which probe locations run the check.
 
 ## Importing existing monitoring
