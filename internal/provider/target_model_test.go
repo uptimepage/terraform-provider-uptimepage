@@ -5,6 +5,10 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/uptimepage/terraform-provider-uptimepage/internal/client"
@@ -606,5 +610,96 @@ func TestFlowToModel_NoPriorTakesTheServerValue(t *testing.T) {
 	}
 	if s := got.Flow.Steps[0].URL.ValueString(); s != "https://app.example.com/x" {
 		t.Errorf("goto url = %q, want the server value", s)
+	}
+}
+
+// The API requires warn_days > critical_days for both expiry kinds. Equal days
+// is the config that reads as sensible and is not: the warning can never fire
+// before the failure, so it planned clean and 400d at apply.
+func TestValidateExpiryDays(t *testing.T) {
+	at := path.Root("check").AtName("tls_cert")
+	i := func(v int64) types.Int64 { return types.Int64Value(v) }
+
+	for _, c := range []struct {
+		warn, critical types.Int64
+		wantErr        bool
+		why            string
+	}{
+		{i(30), i(7), false, "warning comes first"},
+		{i(2), i(1), false, "adjacent is still ordered"},
+		{i(30), i(30), true, "equal, so the warning never fires"},
+		{i(7), i(30), true, "inverted"},
+		{types.Int64Unknown(), i(7), false, "unknown defers to apply"},
+		{i(30), types.Int64Unknown(), false, "unknown defers to apply"},
+		{types.Int64Null(), i(7), false, "null is the framework's Required check"},
+	} {
+		t.Run(c.why, func(t *testing.T) {
+			var d diag.Diagnostics
+			validateExpiryDays(at, c.warn, c.critical, &d)
+			if got := d.HasError(); got != c.wantErr {
+				t.Errorf("warn=%v critical=%v: error=%v, want %v (%v)", c.warn, c.critical, got, c.wantErr, d)
+			}
+		})
+	}
+}
+
+// The error has to point at warn_days, not at the block, or a config with two
+// expiry checks gives no clue which one is wrong.
+func TestValidateExpiryDaysPointsAtTheAttribute(t *testing.T) {
+	var d diag.Diagnostics
+	validateExpiryDays(path.Root("check").AtName("domain_expiry"),
+		types.Int64Value(10), types.Int64Value(10), &d)
+	errs := d.Errors()
+	if len(errs) != 1 {
+		t.Fatalf("got %d errors, want 1", len(errs))
+	}
+	wp, ok := errs[0].(diag.DiagnosticWithPath)
+	if !ok {
+		t.Fatalf("diagnostic carries no path: %v", errs[0])
+	}
+	if got := wp.Path().String(); got != "check.domain_expiry.warn_days" {
+		t.Errorf("error points at %q", got)
+	}
+}
+
+// The API caps expiry days at 365 and rejects 0. The schema used to accept
+// 0..36500, so anything outside the real range planned clean and 400d.
+func TestExpiryDaysRangeMatchesTheAPI(t *testing.T) {
+	var resp resource.SchemaResponse
+	(&targetResource{}).Schema(context.Background(), resource.SchemaRequest{}, &resp)
+	check := resp.Schema.Attributes["check"].(schema.SingleNestedAttribute)
+
+	walked := 0
+	for kind, attr := range check.Attributes {
+		nested, ok := attr.(schema.SingleNestedAttribute)
+		if !ok {
+			continue
+		}
+		for name, a := range nested.Attributes {
+			if name != "warn_days" && name != "critical_days" {
+				continue
+			}
+			walked++
+			ia := a.(schema.Int64Attribute)
+			for _, c := range []struct {
+				v       int64
+				wantErr bool
+			}{{0, true}, {1, false}, {365, false}, {366, true}, {36500, true}} {
+				r := &validator.Int64Response{}
+				for _, v := range ia.Validators {
+					v.ValidateInt64(context.Background(), validator.Int64Request{
+						Path:        path.Root("check").AtName(kind).AtName(name),
+						ConfigValue: types.Int64Value(c.v),
+					}, r)
+				}
+				if got := r.Diagnostics.HasError(); got != c.wantErr {
+					t.Errorf("check.%s.%s = %d: error=%v, want %v", kind, name, c.v, got, c.wantErr)
+				}
+			}
+		}
+	}
+	// tls_cert and domain_expiry, warn and critical each.
+	if walked != 4 {
+		t.Errorf("walked %d expiry-day attributes, want 4", walked)
 	}
 }

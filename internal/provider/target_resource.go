@@ -341,8 +341,8 @@ func hostAttribute(attr, purpose string) schema.Attribute {
 func expiryDaysAttribute(desc string) schema.Attribute {
 	return schema.Int64Attribute{
 		Required:    true,
-		Description: desc,
-		Validators:  []validator.Int64{int64validator.Between(0, 36500)},
+		Description: strings.TrimSuffix(desc, ".") + " (1..365).",
+		Validators:  []validator.Int64{int64validator.Between(1, 365)},
 	}
 }
 
@@ -397,7 +397,7 @@ func pingCheckAttribute() schema.Attribute {
 func tlsCertCheckAttribute() schema.Attribute {
 	return schema.SingleNestedAttribute{
 		Optional:    true,
-		Description: "TLS certificate expiry check (when type = tls_cert).",
+		Description: "TLS certificate expiry check (when type = tls_cert). warn_days must be greater than critical_days.",
 		Attributes: map[string]schema.Attribute{
 			"host":          hostAttribute("check.host", "Hostname to open the TLS connection to."),
 			"port":          portAttribute(),
@@ -412,7 +412,7 @@ func tlsCertCheckAttribute() schema.Attribute {
 func domainExpiryCheckAttribute() schema.Attribute {
 	return schema.SingleNestedAttribute{
 		Optional:    true,
-		Description: "Domain registration expiry check (when type = domain_expiry).",
+		Description: "Domain registration expiry check (when type = domain_expiry). warn_days must be greater than critical_days.",
 		Attributes: map[string]schema.Attribute{
 			"domain":        hostAttribute("check.domain", "Domain whose registration expiry is read."),
 			"warn_days":     expiryDaysAttribute("Warn when the domain expires within this many days."),
@@ -701,6 +701,15 @@ func (r *targetResource) ValidateConfig(ctx context.Context, req resource.Valida
 		validateFlowSteps(cfg.Check.Flow.Steps, &resp.Diagnostics)
 	}
 
+	switch {
+	case cfg.Check.TLSCert != nil:
+		validateExpiryDays(path.Root("check").AtName("tls_cert"),
+			cfg.Check.TLSCert.WarnDays, cfg.Check.TLSCert.CriticalDays, &resp.Diagnostics)
+	case cfg.Check.DomainExpiry != nil:
+		validateExpiryDays(path.Root("check").AtName("domain_expiry"),
+			cfg.Check.DomainExpiry.WarnDays, cfg.Check.DomainExpiry.CriticalDays, &resp.Diagnostics)
+	}
+
 	// ConflictsWith rules out both; this rules out neither.
 	if cfg.Check.HTTP != nil && cfg.Check.HTTP.BasicAuth != nil {
 		ba := cfg.Check.HTTP.BasicAuth
@@ -711,6 +720,22 @@ func (r *targetResource) ValidateConfig(ctx context.Context, req resource.Valida
 				"Set either password (persisted to Terraform state) or password_wo with password_wo_version (write-only, Terraform 1.11+).",
 			)
 		}
+	}
+}
+
+// validateExpiryDays enforces the ordering the API requires. Equal days is the
+// one that looks fine and is not: the warning can never fire before the
+// failure, so the check only ever reports critical.
+func validateExpiryDays(at path.Path, warn, critical types.Int64, diags *diag.Diagnostics) {
+	if warn.IsNull() || warn.IsUnknown() || critical.IsNull() || critical.IsUnknown() {
+		return
+	}
+	if warn.ValueInt64() <= critical.ValueInt64() {
+		diags.AddAttributeError(at.AtName("warn_days"),
+			"warn_days must be greater than critical_days",
+			fmt.Sprintf("warn_days is %d and critical_days is %d, so the warning would never "+
+				"fire before the failure. The API rejects this.",
+				warn.ValueInt64(), critical.ValueInt64()))
 	}
 }
 

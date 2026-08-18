@@ -198,12 +198,12 @@ Required:
 Optional:
 
 - `dns` (Attributes) DNS resolution check (when type = dns). (see [below for nested schema](#nestedatt--check--dns))
-- `domain_expiry` (Attributes) Domain registration expiry check (when type = domain_expiry). (see [below for nested schema](#nestedatt--check--domain_expiry))
+- `domain_expiry` (Attributes) Domain registration expiry check (when type = domain_expiry). warn_days must be greater than critical_days. (see [below for nested schema](#nestedatt--check--domain_expiry))
 - `flow` (Attributes) Browser login/transaction flow check (when type = flow). Runs only where a browser engine is available, so its regions clamp to the flow-capable set. (see [below for nested schema](#nestedatt--check--flow))
 - `http` (Attributes) HTTP(S) check (when type = http). (see [below for nested schema](#nestedatt--check--http))
 - `ping` (Attributes) ICMP echo check (when type = ping). No port: an echo request is not addressed to one. (see [below for nested schema](#nestedatt--check--ping))
 - `tcp` (Attributes) TCP connect check (when type = tcp). (see [below for nested schema](#nestedatt--check--tcp))
-- `tls_cert` (Attributes) TLS certificate expiry check (when type = tls_cert). (see [below for nested schema](#nestedatt--check--tls_cert))
+- `tls_cert` (Attributes) TLS certificate expiry check (when type = tls_cert). warn_days must be greater than critical_days. (see [below for nested schema](#nestedatt--check--tls_cert))
 
 <a id="nestedatt--check--dns"></a>
 ### Nested Schema for `check.dns`
@@ -225,9 +225,9 @@ Optional:
 
 Required:
 
-- `critical_days` (Number) Fail when the domain expires within this many days.
+- `critical_days` (Number) Fail when the domain expires within this many days (1..365).
 - `domain` (String) Domain whose registration expiry is read. Lowercase, no trailing dot, punycode for non-ASCII.
-- `warn_days` (Number) Warn when the domain expires within this many days.
+- `warn_days` (Number) Warn when the domain expires within this many days (1..365).
 
 Optional:
 
@@ -355,10 +355,10 @@ Optional:
 
 Required:
 
-- `critical_days` (Number) Fail when the cert expires within this many days.
+- `critical_days` (Number) Fail when the cert expires within this many days (1..365).
 - `host` (String) Hostname to open the TLS connection to. Lowercase, no trailing dot, punycode for non-ASCII.
 - `port` (Number) Port (1..65535).
-- `warn_days` (Number) Warn when the cert expires within this many days.
+- `warn_days` (Number) Warn when the cert expires within this many days (1..365).
 
 Optional:
 
