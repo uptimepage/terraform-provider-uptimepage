@@ -29,20 +29,21 @@ Terraform does not own.
 
 ## Check types
 
-A target sets `check.type` to one of six values, then fills the matching nested
-block:
+A target sets `check.type` to one of seven values, then fills the matching
+nested block:
 
 | `check.type` | What it verifies |
 |--------------|------------------|
 | `http` | Status code, response body, headers, redirects and request timing. Also runs POST bodies, so it covers JSON-RPC and other API handshakes. |
 | `tcp` | A TCP connection opens on a host and port. |
+| `ping` | A host answers an ICMP echo request. No port, since an echo is not addressed to one. |
 | `dns` | A record resolves and returns the answer you expect. |
 | `tls_cert` | Days remaining on a TLS certificate, before it expires. |
 | `domain_expiry` | Days remaining on a domain registration, read over RDAP. |
 | `flow` | A scripted browser journey, such as a real sign-in, in a headless browser. |
 
-Ping and cron heartbeat monitors are not in the provider. The REST API accepts
-them today, so create those through the API or the web UI.
+Cron heartbeat monitors are not in the provider. The REST API accepts them
+today, so create those through the API or the web UI.
 
 `regions` on a target selects which probe locations run the check.
 

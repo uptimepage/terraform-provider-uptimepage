@@ -64,6 +64,20 @@ resource "uptimepage_target" "db" {
   }
 }
 
+# ICMP echo check. Reaches a host that answers no TCP port at all, such as a
+# gateway or a bare VM.
+resource "uptimepage_target" "gateway" {
+  name     = "office gateway"
+  interval = 60
+
+  check = {
+    type = "ping"
+    ping = {
+      host = "gateway.example.com"
+    }
+  }
+}
+
 # TLS certificate expiry check. A certificate changes on renewal, so twice a
 # day is plenty; the alert fires warn_days ahead either way.
 resource "uptimepage_target" "cert" {

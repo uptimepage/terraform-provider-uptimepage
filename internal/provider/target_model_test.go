@@ -207,6 +207,33 @@ func TestRegions_ExtractAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCheckPingVariantRoundTrips(t *testing.T) {
+	ctx := context.Background()
+	spec := client.CheckSpec{Type: client.CheckTypePing, Ping: &client.PingCheck{Host: "gateway.example.com", Timeout: 3000}}
+	got, d := checkToModel(ctx, checkModel{}, spec)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if got.Ping == nil || got.Ping.Host.ValueString() != "gateway.example.com" || got.Ping.TimeoutMs.ValueInt64() != 3000 {
+		t.Fatalf("ping not mapped: %+v", got.Ping)
+	}
+	// A ping is not a connect probe: leaking into the tcp block would send the
+	// API a port it has no field for.
+	if got.TCP != nil {
+		t.Error("tcp should be nil for a ping check")
+	}
+	if got.Type.ValueString() != client.CheckTypePing {
+		t.Errorf("discriminator = %q, want %q", got.Type.ValueString(), client.CheckTypePing)
+	}
+	back, d := got.toWire(ctx)
+	if d.HasError() {
+		t.Fatalf("diags: %v", d)
+	}
+	if back.Ping == nil || back.Ping.Host != "gateway.example.com" || back.Ping.Timeout != 3000 {
+		t.Fatalf("round-trip lost the ping: %+v", back.Ping)
+	}
+}
+
 func TestCheckToModel_TCPVariant(t *testing.T) {
 	ctx := context.Background()
 	spec := client.CheckSpec{Type: client.CheckTypeTCP, TCP: &client.TCPCheck{Host: "db", Port: 5432, Timeout: 3000}}
@@ -479,5 +506,20 @@ func TestCheckToModel_NoPrior(t *testing.T) {
 	}
 	if !got.HTTP.BearerToken.IsNull() || !got.HTTP.BearerTokenWoVersion.IsNull() {
 		t.Errorf("bearer fields should be null with no prior: %+v", got.HTTP)
+	}
+}
+
+// A kind accepted by the schema but missing from the presence map is rejected
+// at plan time with "requires the block" even when the block is set, so every
+// config naming it fails. ping shipped that way until this caught it.
+func TestEveryAcceptedCheckKindHasABlock(t *testing.T) {
+	present := checkBlocksPresent(checkModel{})
+	for _, kind := range checkKinds() {
+		if _, ok := present[kind]; !ok {
+			t.Errorf("check kind %q is accepted by the schema but has no block-presence entry", kind)
+		}
+	}
+	if len(present) != len(checkKinds()) {
+		t.Errorf("presence map has %d entries, schema accepts %d", len(present), len(checkKinds()))
 	}
 }

@@ -39,6 +39,7 @@ type checkModel struct {
 	Type         types.String       `tfsdk:"type"`
 	HTTP         *httpCheckModel    `tfsdk:"http"`
 	TCP          *tcpCheckModel     `tfsdk:"tcp"`
+	Ping         *pingCheckModel    `tfsdk:"ping"`
 	TLSCert      *tlsCertCheckModel `tfsdk:"tls_cert"`
 	DomainExpiry *domainExpiryModel `tfsdk:"domain_expiry"`
 	DNS          *dnsCheckModel     `tfsdk:"dns"`
@@ -65,6 +66,11 @@ type httpCheckModel struct {
 type tcpCheckModel struct {
 	Host      types.String `tfsdk:"host"`
 	Port      types.Int64  `tfsdk:"port"`
+	TimeoutMs types.Int64  `tfsdk:"timeout_ms"`
+}
+
+type pingCheckModel struct {
+	Host      types.String `tfsdk:"host"`
 	TimeoutMs types.Int64  `tfsdk:"timeout_ms"`
 }
 
@@ -226,6 +232,14 @@ func (c checkModel) toWire(ctx context.Context) (client.CheckSpec, diag.Diagnost
 			Host:    c.TCP.Host.ValueString(),
 			Port:    uint16(c.TCP.Port.ValueInt64()),
 			Timeout: uint64(c.TCP.TimeoutMs.ValueInt64()),
+		}
+	case client.CheckTypePing:
+		if c.Ping == nil {
+			return out, missingBlock(kind)
+		}
+		out.Ping = &client.PingCheck{
+			Host:    c.Ping.Host.ValueString(),
+			Timeout: uint64(c.Ping.TimeoutMs.ValueInt64()),
 		}
 	case client.CheckTypeTLSCert:
 		if c.TLSCert == nil {
@@ -438,6 +452,11 @@ func checkToModel(ctx context.Context, prior checkModel, spec client.CheckSpec) 
 			Host:      types.StringValue(spec.TCP.Host),
 			Port:      types.Int64Value(int64(spec.TCP.Port)),
 			TimeoutMs: types.Int64Value(int64(spec.TCP.Timeout)),
+		}
+	case spec.Ping != nil:
+		out.Ping = &pingCheckModel{
+			Host:      types.StringValue(spec.Ping.Host),
+			TimeoutMs: types.Int64Value(int64(spec.Ping.Timeout)),
 		}
 	case spec.TLSCert != nil:
 		out.TLSCert = &tlsCertCheckModel{

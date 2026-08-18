@@ -79,6 +79,20 @@ resource "uptimepage_target" "db" {
   }
 }
 
+# ICMP echo check. Reaches a host that answers no TCP port at all, such as a
+# gateway or a bare VM.
+resource "uptimepage_target" "gateway" {
+  name     = "office gateway"
+  interval = 60
+
+  check = {
+    type = "ping"
+    ping = {
+      host = "gateway.example.com"
+    }
+  }
+}
+
 # TLS certificate expiry check. A certificate changes on renewal, so twice a
 # day is plenty; the alert fires warn_days ahead either way.
 resource "uptimepage_target" "cert" {
@@ -179,7 +193,7 @@ resource "uptimepage_target" "login" {
 
 Required:
 
-- `type` (String) Check type: http, tcp, tls_cert, domain_expiry, dns, flow.
+- `type` (String) Check type: http, tcp, ping, tls_cert, domain_expiry, dns, flow.
 
 Optional:
 
@@ -187,6 +201,7 @@ Optional:
 - `domain_expiry` (Attributes) Domain registration expiry check (when type = domain_expiry). (see [below for nested schema](#nestedatt--check--domain_expiry))
 - `flow` (Attributes) Browser login/transaction flow check (when type = flow). Runs only where a browser engine is available, so its regions clamp to the flow-capable set. (see [below for nested schema](#nestedatt--check--flow))
 - `http` (Attributes) HTTP(S) check (when type = http). (see [below for nested schema](#nestedatt--check--http))
+- `ping` (Attributes) ICMP echo check (when type = ping). No port: an echo request is not addressed to one. (see [below for nested schema](#nestedatt--check--ping))
 - `tcp` (Attributes) TCP connect check (when type = tcp). (see [below for nested schema](#nestedatt--check--tcp))
 - `tls_cert` (Attributes) TLS certificate expiry check (when type = tls_cert). (see [below for nested schema](#nestedatt--check--tls_cert))
 
@@ -308,6 +323,18 @@ Optional:
 - `password_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only password (Terraform 1.11+): sent to the API on apply, never persisted to state or plan. Set password_wo_version alongside and bump it to rotate.
 - `password_wo_version` (Number) Rotation trigger for password_wo. The password itself never diffs, so bump this when it changes.
 
+
+
+<a id="nestedatt--check--ping"></a>
+### Nested Schema for `check.ping`
+
+Required:
+
+- `host` (String)
+
+Optional:
+
+- `timeout_ms` (Number) Timeout in milliseconds (100..60000).
 
 
 <a id="nestedatt--check--tcp"></a>

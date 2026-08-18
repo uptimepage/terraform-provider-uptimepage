@@ -92,6 +92,12 @@ type TCPCheck struct {
 	Timeout uint64 `json:"timeout"` // milliseconds
 }
 
+// PingCheck is the ping variant: an ICMP echo probe to a host.
+type PingCheck struct {
+	Host    string `json:"host"`
+	Timeout uint64 `json:"timeout"` // milliseconds
+}
+
 // TLSCertCheck verifies a certificate and warns/fails on imminent expiry.
 type TLSCertCheck struct {
 	Host         string  `json:"host"`
@@ -220,6 +226,7 @@ type CheckSpec struct {
 	Type         string             `json:"-"`
 	HTTP         *HTTPCheck         `json:"-"`
 	TCP          *TCPCheck          `json:"-"`
+	Ping         *PingCheck         `json:"-"`
 	TLSCert      *TLSCertCheck      `json:"-"`
 	DomainExpiry *DomainExpiryCheck `json:"-"`
 	DNS          *DNSCheck          `json:"-"`
@@ -229,6 +236,7 @@ type CheckSpec struct {
 const (
 	CheckTypeHTTP         = "http"
 	CheckTypeTCP          = "tcp"
+	CheckTypePing         = "ping"
 	CheckTypeTLSCert      = "tls_cert"
 	CheckTypeDomainExpiry = "domain_expiry"
 	CheckTypeDNS          = "dns"
@@ -259,6 +267,14 @@ func (c CheckSpec) MarshalJSON() ([]byte, error) {
 			Type string `json:"type"`
 			TCPCheck
 		}{c.Type, *c.TCP})
+	case CheckTypePing:
+		if c.Ping == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			PingCheck
+		}{c.Type, *c.Ping})
 	case CheckTypeTLSCert:
 		if c.TLSCert == nil {
 			return nil, errNilPayload(c.Type)
@@ -322,6 +338,9 @@ func (c *CheckSpec) UnmarshalJSON(data []byte) error {
 	case CheckTypeTCP:
 		c.TCP = new(TCPCheck)
 		return json.Unmarshal(data, c.TCP)
+	case CheckTypePing:
+		c.Ping = new(PingCheck)
+		return json.Unmarshal(data, c.Ping)
 	case CheckTypeTLSCert:
 		c.TLSCert = new(TLSCertCheck)
 		return json.Unmarshal(data, c.TLSCert)

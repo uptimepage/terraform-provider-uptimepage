@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
@@ -149,10 +150,8 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:    true,
-						Description: "Check type: http, tcp, tls_cert, domain_expiry, dns, flow.",
-						Validators: []validator.String{stringvalidator.OneOf(
-							client.CheckTypeHTTP, client.CheckTypeTCP, client.CheckTypeTLSCert,
-							client.CheckTypeDomainExpiry, client.CheckTypeDNS, client.CheckTypeFlow)},
+						Description: "Check type: " + strings.Join(checkKinds(), ", ") + ".",
+						Validators:  []validator.String{stringvalidator.OneOf(checkKinds()...)},
 					},
 					"http": schema.SingleNestedAttribute{
 						Optional:    true,
@@ -160,6 +159,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 						Attributes:  httpCheckAttributes(),
 					},
 					"tcp":           tcpCheckAttribute(),
+					"ping":          pingCheckAttribute(),
 					"tls_cert":      tlsCertCheckAttribute(),
 					"domain_expiry": domainExpiryCheckAttribute(),
 					"dns":           dnsCheckAttribute(),
@@ -341,6 +341,42 @@ func tcpCheckAttribute() schema.Attribute {
 		Attributes: map[string]schema.Attribute{
 			"host":       schema.StringAttribute{Required: true},
 			"port":       portAttribute(),
+			"timeout_ms": timeoutMsAttribute(),
+		},
+	}
+}
+
+// checkKinds is the one list of check types the provider accepts. The schema
+// validator and checkBlocksPresent both read it, so a kind added to the schema
+// cannot go missing from config validation, where its absence rejects every
+// config that names it.
+func checkKinds() []string {
+	return []string{
+		client.CheckTypeHTTP, client.CheckTypeTCP, client.CheckTypePing,
+		client.CheckTypeTLSCert, client.CheckTypeDomainExpiry, client.CheckTypeDNS,
+		client.CheckTypeFlow,
+	}
+}
+
+// checkBlocksPresent reports which nested block each kind's config actually set.
+func checkBlocksPresent(c checkModel) map[string]bool {
+	return map[string]bool{
+		client.CheckTypeHTTP:         c.HTTP != nil,
+		client.CheckTypeTCP:          c.TCP != nil,
+		client.CheckTypePing:         c.Ping != nil,
+		client.CheckTypeTLSCert:      c.TLSCert != nil,
+		client.CheckTypeDomainExpiry: c.DomainExpiry != nil,
+		client.CheckTypeDNS:          c.DNS != nil,
+		client.CheckTypeFlow:         c.Flow != nil,
+	}
+}
+
+func pingCheckAttribute() schema.Attribute {
+	return schema.SingleNestedAttribute{
+		Optional:    true,
+		Description: "ICMP echo check (when type = ping). No port: an echo request is not addressed to one.",
+		Attributes: map[string]schema.Attribute{
+			"host":       schema.StringAttribute{Required: true},
 			"timeout_ms": timeoutMsAttribute(),
 		},
 	}
@@ -646,14 +682,8 @@ func (r *targetResource) ValidateConfig(ctx context.Context, req resource.Valida
 	if resp.Diagnostics.HasError() || cfg.Check.Type.IsUnknown() || cfg.Check.Type.IsNull() {
 		return
 	}
-	validateDiscriminatedBlock(path.Root("check"), cfg.Check.Type.ValueString(), map[string]bool{
-		client.CheckTypeHTTP:         cfg.Check.HTTP != nil,
-		client.CheckTypeTCP:          cfg.Check.TCP != nil,
-		client.CheckTypeTLSCert:      cfg.Check.TLSCert != nil,
-		client.CheckTypeDomainExpiry: cfg.Check.DomainExpiry != nil,
-		client.CheckTypeDNS:          cfg.Check.DNS != nil,
-		client.CheckTypeFlow:         cfg.Check.Flow != nil,
-	}, &resp.Diagnostics)
+	validateDiscriminatedBlock(path.Root("check"), cfg.Check.Type.ValueString(),
+		checkBlocksPresent(cfg.Check), &resp.Diagnostics)
 
 	if cfg.Check.Type.ValueString() == client.CheckTypeFlow && cfg.Check.Flow != nil {
 		validateFlowSteps(cfg.Check.Flow.Steps, &resp.Diagnostics)

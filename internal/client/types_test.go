@@ -3,6 +3,8 @@ package client
 import (
 	"encoding/json"
 	"reflect"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -73,22 +75,35 @@ func TestNewTarget_EmptyCollectionsNeverNull(t *testing.T) {
 func TestCheckSpec_VariantsRoundTrip(t *testing.T) {
 	resolver := "1.1.1.1"
 	fillSel := "#username"
-	cases := map[string]CheckSpec{
-		"tcp":           {Type: CheckTypeTCP, TCP: &TCPCheck{Host: "db", Port: 5432, Timeout: 3000}},
-		"tls_cert":      {Type: CheckTypeTLSCert, TLSCert: &TLSCertCheck{Host: "x", Port: 443, WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
-		"domain_expiry": {Type: CheckTypeDomainExpiry, DomainExpiry: &DomainExpiryCheck{Domain: "x.com", WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
-		"dns":           {Type: CheckTypeDNS, DNS: &DNSCheck{Domain: "x.com", RecordType: "A", Resolver: &resolver, Timeout: 5000}},
-		"flow": {Type: CheckTypeFlow, Flow: &FlowCheck{
+	// keys pin the wire contract field by field. A round-trip alone cannot:
+	// renaming a tag renames it on both sides, so the encode/decode pair still
+	// agrees while the server, which never changed, rejects the payload.
+	cases := map[string]struct {
+		spec CheckSpec
+		keys []string
+	}{
+		"tcp": {CheckSpec{Type: CheckTypeTCP, TCP: &TCPCheck{Host: "db", Port: 5432, Timeout: 3000}},
+			[]string{"type", "host", "port", "timeout"}},
+		"ping": {CheckSpec{Type: CheckTypePing, Ping: &PingCheck{Host: "gateway.example.com", Timeout: 3000}},
+			[]string{"type", "host", "timeout"}},
+		"tls_cert": {CheckSpec{Type: CheckTypeTLSCert, TLSCert: &TLSCertCheck{Host: "x", Port: 443, WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
+			[]string{"type", "host", "port", "server_name", "warn_days", "critical_days", "timeout"}},
+		"domain_expiry": {CheckSpec{Type: CheckTypeDomainExpiry, DomainExpiry: &DomainExpiryCheck{Domain: "x.com", WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
+			[]string{"type", "domain", "warn_days", "critical_days", "timeout"}},
+		"dns": {CheckSpec{Type: CheckTypeDNS, DNS: &DNSCheck{Domain: "x.com", RecordType: "A", Resolver: &resolver, Timeout: 5000}},
+			[]string{"type", "domain", "record_type", "resolver", "expected_contains", "timeout"}},
+		"flow": {CheckSpec{Type: CheckTypeFlow, Flow: &FlowCheck{
 			StartURL: "https://app.example.com/login",
 			Steps: []FlowStep{
 				{Op: FlowOpFill, Selector: &fillSel, Value: "user"},
 				{Op: FlowOpAssertURL, Contains: "/home"},
 			},
 			Timeout: 30000, StepTimeout: 5000, VerifyTLS: true,
-		}},
+		}}, []string{"type", "start_url", "steps", "timeout", "step_timeout", "verify_tls"}},
 	}
-	for name, spec := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			spec := tc.spec
 			raw, err := json.Marshal(spec)
 			if err != nil {
 				t.Fatalf("marshal: %v", err)
@@ -99,6 +114,16 @@ func TestCheckSpec_VariantsRoundTrip(t *testing.T) {
 			}
 			if string(m["type"]) != `"`+name+`"` {
 				t.Errorf("type = %s, want %q", m["type"], name)
+			}
+			got := make([]string, 0, len(m))
+			for k := range m {
+				got = append(got, k)
+			}
+			want := append([]string(nil), tc.keys...)
+			sort.Strings(got)
+			sort.Strings(want)
+			if !slices.Equal(got, want) {
+				t.Errorf("payload keys = %v, want %v", got, want)
 			}
 			var back CheckSpec
 			if err := json.Unmarshal(raw, &back); err != nil {
