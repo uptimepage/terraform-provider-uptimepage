@@ -101,8 +101,9 @@ func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Versioned public logo URL, or null when no logo. Upload via the UI.",
 			},
 			"status_url": schema.StringAttribute{
-				Computed:    true,
-				Description: "Live public URL of the page, or null when no public surface is mounted.",
+				Computed:      true,
+				Description:   "Live public URL of the page, or null when no public surface is mounted.",
+				PlanModifiers: []planmodifier.String{keepWhileSlugUnchanged()},
 			},
 		},
 	}
