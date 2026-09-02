@@ -9,6 +9,8 @@ description: |-
 
 Manage Uptimepage monitors, status pages, status page components and notification channels as code. Monitors cover HTTP, TCP, ICMP ping, inbound cron heartbeats, DNS, TLS certificate expiry, domain expiry and scripted browser login flows. Every resource supports import, and the provider works against the hosted service or a self-hosted instance.
 
+Use the provider with [Uptimepage's hosted uptime monitoring and status page service](https://uptimepage.dev/terraform-uptime-monitoring), or point the same configuration at a self-hosted instance. The [Terraform setup guide](https://uptimepage.dev/docs/terraform) covers API tokens, organization scope, imports, and the hosted-service workflow.
+
 ## Example Usage
 
 ```terraform
@@ -33,6 +35,10 @@ provider "uptimepage" {
   org = "your-org-slug"
 }
 ```
+
+## Complete hosted example
+
+The [end-to-end configuration](https://github.com/uptimepage/terraform-provider-uptimepage/blob/main/examples/complete/main.tf) creates an HTTP monitor, routes confirmed failures to Slack, publishes a public status page, and adds the monitor as a customer-facing component.
 
 ## What this provider manages
 

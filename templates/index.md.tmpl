@@ -9,11 +9,17 @@ description: |-
 
 {{ .Description | trimspace }}
 
+Use the provider with [Uptimepage's hosted uptime monitoring and status page service](https://uptimepage.dev/terraform-uptime-monitoring), or point the same configuration at a self-hosted instance. The [Terraform setup guide](https://uptimepage.dev/docs/terraform) covers API tokens, organization scope, imports, and the hosted-service workflow.
+
 {{ if .HasExample -}}
 ## Example Usage
 
 {{tffile .ExampleFile }}
 {{- end }}
+
+## Complete hosted example
+
+The [end-to-end configuration](https://github.com/uptimepage/terraform-provider-uptimepage/blob/main/examples/complete/main.tf) creates an HTTP monitor, routes confirmed failures to Slack, publishes a public status page, and adds the monitor as a customer-facing component.
 
 ## What this provider manages
 

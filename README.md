@@ -1,6 +1,6 @@
 # terraform-provider-uptimepage
 
-Terraform provider for [Uptimepage](https://uptimepage.dev) — manage your monitors and notification channels as code against the `/api/v1` REST API.
+Terraform provider for [Uptimepage](https://uptimepage.dev/terraform-uptime-monitoring) — manage monitors, notification channels, and public status pages as code against the `/api/v1` REST API. The [Terraform setup guide](https://uptimepage.dev/docs/terraform) covers tokens, organization scope, imports, and the hosted-service workflow.
 
 ## Usage
 
@@ -45,6 +45,8 @@ resource "uptimepage_target" "api" {
   }]
 }
 ```
+
+For a copy-ready configuration that connects a monitor to Slack and publishes it on a customer-facing status page, see the [complete hosted example](examples/complete/main.tf).
 
 ## Authentication
 
