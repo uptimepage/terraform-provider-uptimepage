@@ -101,7 +101,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Computed:    true,
 				ElementType: types.StringType,
 				Description: "Regions this target probes from, as operator-defined slugs (e.g. \"us-east\", \"apac-sg\"). " +
-					"Omit to accept whatever the server auto-assigns on create (all regions, up to the plan cap) — that set is read back into state with no perpetual diff. " +
+					"Omit to accept the server's default set on create, which need not be every region the fleet has (the uptimepage_regions data source lists them all) — that set is read back into state with no perpetual diff. " +
 					"Set it to enforce an exact set; the set is replaced wholesale on change. The server requires at least one region and rejects unknown or disabled ids.",
 				// No Default: unlike tags (which default to empty), an omitted set
 				// is server-computed (the auto-assigned region set), not empty.

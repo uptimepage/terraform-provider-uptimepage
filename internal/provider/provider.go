@@ -130,6 +130,7 @@ func (p *Provider) DataSources(_ context.Context) []func() datasource.DataSource
 	return []func() datasource.DataSource{
 		newTargetDataSource,
 		newHeartbeatDataSource,
+		newRegionsDataSource,
 	}
 }
 

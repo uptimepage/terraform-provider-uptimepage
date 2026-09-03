@@ -49,9 +49,10 @@ The [end-to-end configuration](https://github.com/uptimepage/terraform-provider-
 | `uptimepage_status_page` | A public status page: subdomain slug, branding and theme. Owner-only. |
 | `uptimepage_status_page_component` | A monitor shown on a status page. |
 
-Two data sources read what Terraform does not own: `uptimepage_target` for a
-monitor created elsewhere, and `uptimepage_heartbeat` for the URL a heartbeat
-job reports to.
+Three data sources read what Terraform does not own: `uptimepage_target` for a
+monitor created elsewhere, `uptimepage_heartbeat` for the URL a heartbeat job
+reports to, and `uptimepage_regions` for the probe regions the instance serves,
+which is where a monitor's `regions` ids come from.
 
 ## Check types
 

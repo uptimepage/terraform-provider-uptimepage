@@ -53,10 +53,11 @@ type TargetUpdate struct {
 }
 
 // TargetRegions is the GET/PUT /targets/{id}/regions body. Regions live on this
-// sub-resource, not on the target itself: POST /targets auto-assigns the full
-// set (up to the plan cap), and PUT replaces the set wholesale. The server
-// rejects an empty list (>= 1 region required) and unknown/disabled region ids
-// with 422 REGION_INVALID.
+// sub-resource, not on the target itself: POST /targets assigns the operator's
+// default set (up to the plan cap), which need not be every region the fleet
+// serves, and PUT replaces the set wholesale. The server rejects an empty list
+// (>= 1 region required) and unknown/disabled region ids with 422
+// REGION_INVALID.
 type TargetRegions struct {
 	Regions []string `json:"regions"`
 }

@@ -35,7 +35,13 @@ func TestProviderSchema_Valid(t *testing.T) {
 			t.Errorf("%s resource schema missing", name)
 		}
 	}
-	if _, ok := resp.DataSourceSchemas["uptimepage_target"]; !ok {
-		t.Error("uptimepage_target data source schema missing")
+	for _, name := range []string{
+		"uptimepage_target",
+		"uptimepage_heartbeat",
+		"uptimepage_regions",
+	} {
+		if _, ok := resp.DataSourceSchemas[name]; !ok {
+			t.Errorf("%s data source schema missing", name)
+		}
 	}
 }

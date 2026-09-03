@@ -31,7 +31,7 @@ resource "uptimepage_notification_channel" "slack" {
 resource "uptimepage_target" "api" {
   name     = "api prod"
   interval = 60
-  regions  = ["us-east", "apac-sg"] # omit to probe from every region
+  regions  = ["us-east", "apac-sg"] # omit to take the operator's default set
   check = {
     type = "http"
     http = {
@@ -66,6 +66,7 @@ API tokens are user-scoped, so every managed-resource request must also name an 
 | `uptimepage_status_page_component` | resource | Curates one monitor onto a page, with per-page overrides. |
 | `uptimepage_target` | data source | Look up a target by id. |
 | `uptimepage_heartbeat` | data source | The URL a heartbeat job reports to. Sensitive: holding it is enough to report the job healthy or failed. |
+| `uptimepage_regions` | data source | The probe regions this instance serves, with `ids` ready to feed a target's `regions`. |
 
 Full reference under [`docs/`](docs/), generated from the schema.
 
@@ -73,10 +74,23 @@ Full reference under [`docs/`](docs/), generated from the schema.
 
 `uptimepage_target.regions` selects which regions a monitor probes from, as operator-defined slugs (e.g. `us-east`, `apac-sg`). It is **optional + computed**:
 
-- **Omit it** and the server auto-assigns every available region on create (up to your plan's cap). That set is read back into state, so there is no perpetual diff.
+- **Omit it** and the server assigns its default set on create, which is not necessarily every region: an operator can publish a vantage point without ticking it by default. That set is read back into state, so there is no perpetual diff — but a monitor that needs a region outside the defaults has to name it.
 - **Set it** to pin an exact set; the set is replaced wholesale on each change. At least one region is required (an empty set is rejected at plan time), and unknown or disabled region ids surface the API's `REGION_INVALID` error.
 
-Regions are managed through a target sub-resource (`/api/v1/targets/{id}/regions`); reading needs the `targets:read` scope and writing needs `targets:write` — both already covered by the `targets:write` scope the provider uses. There is currently no public endpoint that lists the full region catalog, so configs must name region ids directly.
+The `uptimepage_regions` data source lists what the instance actually serves, so a config need not hard-code slugs that a self-hosted install may not have:
+
+```hcl
+data "uptimepage_regions" "all" {}
+
+resource "uptimepage_target" "everywhere" {
+  # ...
+  regions = data.uptimepage_regions.all.ids
+}
+```
+
+Every region is still capped by the plan, so `ids` on a fleet larger than the cap fails the apply with the API's quota error rather than silently trimming.
+
+Regions are managed through a target sub-resource (`/api/v1/targets/{id}/regions`); reading needs the `targets:read` scope and writing needs `targets:write` — both already covered by the `targets:write` scope the provider uses. The catalog endpoint the data source reads needs `targets:read` as well.
 
 ## Managed-by badge
 
