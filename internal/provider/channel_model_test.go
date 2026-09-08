@@ -187,6 +187,60 @@ func TestChannelConfig_RedactionSuppressed(t *testing.T) {
 		}
 	})
 
+	t.Run("slack_url_redacted_mention_visible", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeSlack), Slack: &slackConfigModel{WebhookURL: types.StringValue("https://hooks.slack.com/services/real")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeSlack, Slack: &client.SlackConfig{WebhookURL: redactedSentinel, Mention: "@here S01ABC2345"}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Slack.WebhookURL.ValueString() != "https://hooks.slack.com/services/real" {
+			t.Errorf("webhook_url not preserved: %q", got.Slack.WebhookURL.ValueString())
+		}
+		if got.Slack.Mention.ValueString() != "@here S01ABC2345" {
+			t.Errorf("mention should reflect the API: %+v", got.Slack)
+		}
+	})
+
+	// Slack ids are uppercase, so unlike Mattermost the read-back must not fold.
+	t.Run("slack_mention_case_is_significant", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeSlack), Slack: &slackConfigModel{Mention: types.StringValue("U01ABC2345")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeSlack, Slack: &client.SlackConfig{WebhookURL: redactedSentinel, Mention: "u01abc2345"}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Slack.Mention.ValueString() != "u01abc2345" {
+			t.Errorf("a case change is real drift on Slack, got %q", got.Slack.Mention.ValueString())
+		}
+	})
+
+	t.Run("discord_url_redacted_mention_visible", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeDiscord), Discord: &discordConfigModel{WebhookURL: types.StringValue("https://discord.com/api/webhooks/1/real")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeDiscord, Discord: &client.DiscordConfig{WebhookURL: redactedSentinel, Mention: "&123456789012345678"}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Discord.WebhookURL.ValueString() != "https://discord.com/api/webhooks/1/real" {
+			t.Errorf("webhook_url not preserved: %q", got.Discord.WebhookURL.ValueString())
+		}
+		if got.Discord.Mention.ValueString() != "&123456789012345678" {
+			t.Errorf("mention should reflect the API: %+v", got.Discord)
+		}
+	})
+
+	t.Run("slack_absent_mention_is_null", func(t *testing.T) {
+		cfg := client.ChannelConfig{Type: client.ChannelTypeSlack, Slack: &client.SlackConfig{WebhookURL: "https://hooks.slack.com/services/x"}}
+		got, d := configToModel(ctx, channelConfigModel{}, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if !got.Slack.Mention.IsNull() {
+			t.Errorf("absent mention should be null, got %q", got.Slack.Mention.ValueString())
+		}
+	})
+
 	t.Run("mattermost_url_redacted_mention_visible", func(t *testing.T) {
 		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeMattermost), Mattermost: &mattermostConfigModel{WebhookURL: types.StringValue("https://mm.example.com/hooks/real-key")}}
 		cfg := client.ChannelConfig{Type: client.ChannelTypeMattermost, Mattermost: &client.MattermostConfig{WebhookURL: redactedSentinel, Mention: "@here"}}

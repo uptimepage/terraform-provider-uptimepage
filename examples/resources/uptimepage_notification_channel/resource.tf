@@ -4,6 +4,8 @@ resource "uptimepage_notification_channel" "slack" {
     type = "slack"
     slack = {
       webhook_url = var.slack_webhook_url
+      # Ids, not handles: a bare @sre is inert in a webhook message.
+      mention = "@here S01ABC2345"
     }
   }
 }
@@ -38,6 +40,8 @@ resource "uptimepage_notification_channel" "discord" {
     type = "discord"
     discord = {
       webhook_url = var.discord_webhook_url
+      # A role id needs the leading &; without it this pings nobody.
+      mention = "&123456789012345678"
     }
   }
 }

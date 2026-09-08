@@ -88,9 +88,10 @@ type WebhookConfig struct {
 	Headers map[string]string `json:"headers,omitempty"`
 }
 
-// SlackConfig: webhook_url is redacted on read.
+// SlackConfig: webhook_url is redacted on read. mention is not.
 type SlackConfig struct {
 	WebhookURL string `json:"webhook_url"`
+	Mention    string `json:"mention,omitempty"`
 }
 
 // TelegramConfig: bot_token is redacted on read; chat_id is not.
@@ -99,9 +100,10 @@ type TelegramConfig struct {
 	ChatID   string `json:"chat_id"`
 }
 
-// DiscordConfig: webhook_url is redacted on read.
+// DiscordConfig: webhook_url is redacted on read. mention is not.
 type DiscordConfig struct {
 	WebhookURL string `json:"webhook_url"`
+	Mention    string `json:"mention,omitempty"`
 }
 
 // MsTeamsConfig: webhook_url is redacted on read.

@@ -208,7 +208,7 @@ func TestFlowStep_AssertTextNullSelector(t *testing.T) {
 func TestChannelConfig_VariantsRoundTrip(t *testing.T) {
 	cases := map[string]ChannelConfig{
 		"webhook":     {Type: ChannelTypeWebhook, Webhook: &WebhookConfig{URL: "https://x", Headers: map[string]string{"A": "b"}}},
-		"slack":       {Type: ChannelTypeSlack, Slack: &SlackConfig{WebhookURL: "https://hooks"}},
+		"slack":       {Type: ChannelTypeSlack, Slack: &SlackConfig{WebhookURL: "https://hooks", Mention: "@here S01ABC2345"}},
 		"telegram":    {Type: ChannelTypeTelegram, Telegram: &TelegramConfig{BotToken: "123:abc", ChatID: "-100"}},
 		"discord":     {Type: ChannelTypeDiscord, Discord: &DiscordConfig{WebhookURL: "https://discord.com/api/webhooks/1/x"}},
 		"msteams":     {Type: ChannelTypeMsTeams, MsTeams: &MsTeamsConfig{WebhookURL: "https://contoso.webhook.office.com/x"}},

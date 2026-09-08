@@ -144,6 +144,14 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 								Sensitive:   true,
 								Description: "Slack webhook URL. Write-only.",
 							},
+							"mention": schema.StringAttribute{
+								Optional: true,
+								Description: "Who to ping on an alert: @here, @channel, a user-group id " +
+									"(S…) or a member id (U…, or W… on Enterprise Grid). Space or comma " +
+									"separated, up to 5. A bare @handle is inert in a webhook message, so " +
+									"the id is what Slack needs. Only on opened/reopened/escalated/no-data " +
+									"alerts. Not a secret, so it reads back visible.",
+							},
 						},
 					},
 					"telegram": schema.SingleNestedAttribute{
@@ -166,6 +174,14 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 								Required:    true,
 								Sensitive:   true,
 								Description: "Discord webhook URL. Write-only.",
+							},
+							"mention": schema.StringAttribute{
+								Optional: true,
+								Description: "Who to ping on an alert: @everyone, @here, a role id (&123…) " +
+									"or a member id (123…). Space or comma separated, up to 5. A role id " +
+									"and a member id share one shape, so a role needs the leading &. Only " +
+									"on opened/reopened/escalated/no-data alerts. Not a secret, so it " +
+									"reads back visible.",
 							},
 						},
 					},

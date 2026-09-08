@@ -47,6 +47,7 @@ type webhookConfigModel struct {
 
 type slackConfigModel struct {
 	WebhookURL types.String `tfsdk:"webhook_url"`
+	Mention    types.String `tfsdk:"mention"`
 }
 
 type telegramConfigModel struct {
@@ -56,6 +57,7 @@ type telegramConfigModel struct {
 
 type discordConfigModel struct {
 	WebhookURL types.String `tfsdk:"webhook_url"`
+	Mention    types.String `tfsdk:"mention"`
 }
 
 type msteamsConfigModel struct {
@@ -164,7 +166,10 @@ func (c channelConfigModel) toWire(ctx context.Context) (client.ChannelConfig, d
 		if c.Slack == nil {
 			return out, missingBlock(kind)
 		}
-		out.Slack = &client.SlackConfig{WebhookURL: c.Slack.WebhookURL.ValueString()}
+		out.Slack = &client.SlackConfig{
+			WebhookURL: c.Slack.WebhookURL.ValueString(),
+			Mention:    c.Slack.Mention.ValueString(),
+		}
 	case client.ChannelTypeTelegram:
 		if c.Telegram == nil {
 			return out, missingBlock(kind)
@@ -177,7 +182,10 @@ func (c channelConfigModel) toWire(ctx context.Context) (client.ChannelConfig, d
 		if c.Discord == nil {
 			return out, missingBlock(kind)
 		}
-		out.Discord = &client.DiscordConfig{WebhookURL: c.Discord.WebhookURL.ValueString()}
+		out.Discord = &client.DiscordConfig{
+			WebhookURL: c.Discord.WebhookURL.ValueString(),
+			Mention:    c.Discord.Mention.ValueString(),
+		}
 	case client.ChannelTypeMsTeams:
 		if c.MsTeams == nil {
 			return out, missingBlock(kind)
@@ -302,11 +310,14 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 			Headers: keepHeaders(ctx, priorHeaders, cfg.Webhook.Headers, &diags),
 		}
 	case cfg.Slack != nil:
-		priorURL := types.StringNull()
+		priorURL, priorMention := types.StringNull(), types.StringNull()
 		if prior.Slack != nil {
-			priorURL = prior.Slack.WebhookURL
+			priorURL, priorMention = prior.Slack.WebhookURL, prior.Slack.Mention
 		}
-		out.Slack = &slackConfigModel{WebhookURL: keepSecret(priorURL, &cfg.Slack.WebhookURL)}
+		out.Slack = &slackConfigModel{
+			WebhookURL: keepSecret(priorURL, &cfg.Slack.WebhookURL),
+			Mention:    keepOpt(priorMention, optPtr(cfg.Slack.Mention), false),
+		}
 	case cfg.Telegram != nil:
 		priorToken := types.StringNull()
 		if prior.Telegram != nil {
@@ -317,11 +328,14 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 			ChatID:   types.StringValue(cfg.Telegram.ChatID),
 		}
 	case cfg.Discord != nil:
-		priorURL := types.StringNull()
+		priorURL, priorMention := types.StringNull(), types.StringNull()
 		if prior.Discord != nil {
-			priorURL = prior.Discord.WebhookURL
+			priorURL, priorMention = prior.Discord.WebhookURL, prior.Discord.Mention
 		}
-		out.Discord = &discordConfigModel{WebhookURL: keepSecret(priorURL, &cfg.Discord.WebhookURL)}
+		out.Discord = &discordConfigModel{
+			WebhookURL: keepSecret(priorURL, &cfg.Discord.WebhookURL),
+			Mention:    keepOpt(priorMention, optPtr(cfg.Discord.Mention), false),
+		}
 	case cfg.MsTeams != nil:
 		priorURL := types.StringNull()
 		if prior.MsTeams != nil {
@@ -366,14 +380,10 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 		if prior.Mattermost != nil {
 			priorURL, priorMention = prior.Mattermost.WebhookURL, prior.Mattermost.Mention
 		}
-		var mention *string
-		if m := cfg.Mattermost.Mention; m != "" {
-			mention = &m
-		}
 		out.Mattermost = &mattermostConfigModel{
 			WebhookURL: keepSecret(priorURL, &cfg.Mattermost.WebhookURL),
-			// The API lowercases the ping; folding keeps the config's spelling.
-			Mention: keepOpt(priorMention, mention, true),
+			// The API lowercases this one; folding keeps the config's spelling.
+			Mention: keepOpt(priorMention, optPtr(cfg.Mattermost.Mention), true),
 		}
 	case cfg.Pushover != nil:
 		priorTok, priorUser := types.StringNull(), types.StringNull()
@@ -421,6 +431,13 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 		diags.AddError("Unsupported channel type", fmt.Sprintf("channel type %q has no config", cfg.Type))
 	}
 	return out, diags
+}
+
+func optPtr(got string) *string {
+	if got == "" {
+		return nil
+	}
+	return &got
 }
 
 // optStringOrNull maps an absent optional field ("") to null so a config that

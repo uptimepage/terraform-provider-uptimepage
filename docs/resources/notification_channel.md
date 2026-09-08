@@ -19,6 +19,8 @@ resource "uptimepage_notification_channel" "slack" {
     type = "slack"
     slack = {
       webhook_url = var.slack_webhook_url
+      # Ids, not handles: a bare @sre is inert in a webhook message.
+      mention = "@here S01ABC2345"
     }
   }
 }
@@ -53,6 +55,8 @@ resource "uptimepage_notification_channel" "discord" {
     type = "discord"
     discord = {
       webhook_url = var.discord_webhook_url
+      # A role id needs the leading &; without it this pings nobody.
+      mention = "&123456789012345678"
     }
   }
 }
@@ -239,6 +243,10 @@ Required:
 
 - `webhook_url` (String, Sensitive) Discord webhook URL. Write-only.
 
+Optional:
+
+- `mention` (String) Who to ping on an alert: @everyone, @here, a role id (&123…) or a member id (123…). Space or comma separated, up to 5. A role id and a member id share one shape, so a role needs the leading &. Only on opened/reopened/escalated/no-data alerts. Not a secret, so it reads back visible.
+
 
 <a id="nestedatt--config--email"></a>
 ### Nested Schema for `config.email`
@@ -326,6 +334,10 @@ Optional:
 Required:
 
 - `webhook_url` (String, Sensitive) Slack webhook URL. Write-only.
+
+Optional:
+
+- `mention` (String) Who to ping on an alert: @here, @channel, a user-group id (S…) or a member id (U…, or W… on Enterprise Grid). Space or comma separated, up to 5. A bare @handle is inert in a webhook message, so the id is what Slack needs. Only on opened/reopened/escalated/no-data alerts. Not a secret, so it reads back visible.
 
 
 <a id="nestedatt--config--sms"></a>

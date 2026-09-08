@@ -120,7 +120,8 @@ later. On a channel it is whichever secret its type uses: the webhook `url` and
 an ntfy or WhatsApp `access_token`, a Gotify or Pushover `token` (with a
 Pushover `user`), or the `auth_token`, `api_key`, `api_secret` and `api_token` an
 SMS provider needs. A Mattermost `webhook_url` is a secret in full: its path
-carries the key. The `mention` beside it is not, so it reads back visible.
+carries the key. A `mention` is never a secret — on Slack, Discord or
+Mattermost — so it reads back visible.
 
 ## Hosted or self-hosted
 
