@@ -61,7 +61,7 @@ API tokens are user-scoped, so every managed-resource request must also name an 
 | Name | Kind | Notes |
 |------|------|-------|
 | `uptimepage_target` | resource | Monitors. Check types: `http`, `tcp`, `ping`, `heartbeat`, `tls_cert`, `domain_expiry`, `dns`, `flow`. |
-| `uptimepage_notification_channel` | resource | `webhook`, `slack`, `telegram`, `discord`, `msteams`, `google_chat`, `email`, `pagerduty`, `ntfy`, `gotify`, `pushover`, `whatsapp`, `sms`. |
+| `uptimepage_notification_channel` | resource | `webhook`, `slack`, `telegram`, `discord`, `msteams`, `google_chat`, `mattermost`, `email`, `pagerduty`, `ntfy`, `gotify`, `pushover`, `whatsapp`, `sms`. |
 | `uptimepage_status_page` | resource | A public status page: slug, branding, theme. Owner-only. |
 | `uptimepage_status_page_component` | resource | Curates one monitor onto a page, with per-page overrides. |
 | `uptimepage_target` | data source | Look up a target by id. |

@@ -1,8 +1,13 @@
 package provider
 
 import (
+	"context"
+	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
@@ -38,4 +43,42 @@ func TestAccChannelResource_basic(t *testing.T) {
 			},
 		},
 	})
+}
+
+func TestMattermostHookPath(t *testing.T) {
+	for url, want := range map[string]bool{
+		"https://mm.example.com/hooks/abc123":        true,
+		"https://mm.example.com/hooks/abc123/":       true,
+		"https://co.test/mm/hooks/abc123":            true,
+		"https://mm.example.com/hooks/abc?a=/b":      true,
+		"https://mm.example.com/hooks/":              false,
+		"https://mm.example.com/hooks/a/b":           false,
+		"https://mm.example.com/api/v4/posts":        false,
+		"https://mm.example.com/api/v4/x?u=/hooks/k": false,
+	} {
+		if got := mattermostHookPath.MatchString(url); got != want {
+			t.Errorf("%s: got %v, want %v", url, got, want)
+		}
+	}
+}
+
+func TestMattermostURLValidator_NeverEchoesTheKey(t *testing.T) {
+	const secret = "https://mm.example.com/api/v4/posts?k=zzSECRETKEYzz"
+	var resp validator.StringResponse
+	mattermostURLValidator{}.ValidateString(
+		context.Background(),
+		validator.StringRequest{
+			Path:        path.Root("config").AtName("mattermost").AtName("webhook_url"),
+			ConfigValue: types.StringValue(secret),
+		},
+		&resp,
+	)
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected a rejection")
+	}
+	for _, d := range resp.Diagnostics.Errors() {
+		if strings.Contains(d.Detail()+d.Summary(), "zzSECRETKEYzz") {
+			t.Errorf("diagnostic leaks the webhook key: %s", d.Detail())
+		}
+	}
 }

@@ -3,12 +3,12 @@
 page_title: "uptimepage_notification_channel Resource - uptimepage"
 subcategory: ""
 description: |-
-  A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp, or SMS).
+  A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, Mattermost, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp, or SMS).
 ---
 
 # uptimepage_notification_channel (Resource)
 
-A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp, or SMS).
+A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, Mattermost, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp, or SMS).
 
 ## Example Usage
 
@@ -99,6 +99,19 @@ resource "uptimepage_notification_channel" "gotify" {
       # Base URL of your own server, no trailing slash; publishes to /message.
       server_url = "https://push.example.com"
       token      = var.gotify_token
+    }
+  }
+}
+
+resource "uptimepage_notification_channel" "mattermost" {
+  name = "ops mattermost"
+  config = {
+    type = "mattermost"
+    mattermost = {
+      # Integrations -> Incoming Webhook. The key in the path is the secret.
+      webhook_url = var.mattermost_webhook_url
+      # Optional. Lowercased by the API; recovery messages never ping.
+      mention = "@here"
     }
   }
 }
@@ -200,7 +213,7 @@ resource "uptimepage_target" "api" {
 
 Required:
 
-- `type` (String) Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, pagerduty, ntfy, gotify, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.
+- `type` (String) Channel type: webhook, slack, telegram, discord, msteams, google_chat, mattermost, email, pagerduty, ntfy, gotify, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.
 
 Optional:
 
@@ -208,6 +221,7 @@ Optional:
 - `email` (Attributes) Email recipient (when type = email). Delivery starts only after the address confirms the verification mail; track it via verified_at. (see [below for nested schema](#nestedatt--config--email))
 - `google_chat` (Attributes) Google Chat space webhook (when type = google_chat). (see [below for nested schema](#nestedatt--config--google_chat))
 - `gotify` (Attributes) Self-hosted Gotify server (when type = gotify). (see [below for nested schema](#nestedatt--config--gotify))
+- `mattermost` (Attributes) Mattermost incoming webhook (when type = mattermost). (see [below for nested schema](#nestedatt--config--mattermost))
 - `msteams` (Attributes) Microsoft Teams incoming webhook (when type = msteams). (see [below for nested schema](#nestedatt--config--msteams))
 - `ntfy` (Attributes) ntfy topic push (when type = ntfy). (see [below for nested schema](#nestedatt--config--ntfy))
 - `pagerduty` (Attributes) PagerDuty Events API v2 (when type = pagerduty). (see [below for nested schema](#nestedatt--config--pagerduty))
@@ -249,6 +263,18 @@ Required:
 
 - `server_url` (String) Base URL of your Gotify server, path included when it is served under one. Deliveries publish to {server_url}/message.
 - `token` (String, Sensitive) Application token, sent as X-Gotify-Key. Write-only.
+
+
+<a id="nestedatt--config--mattermost"></a>
+### Nested Schema for `config.mattermost`
+
+Required:
+
+- `webhook_url` (String, Sensitive) Mattermost incoming webhook URL, ending in /hooks/<key>. The key is the whole secret, so the URL is write-only. A subpath install behind a reverse proxy is fine.
+
+Optional:
+
+- `mention` (String) Who to ping on an alert: @channel, @here, @all, or a username or group name. Space or comma separated, up to 5. Lowercased by the API, and only on opened/reopened/escalated/no-data alerts. Not a secret, so it reads back visible.
 
 
 <a id="nestedatt--config--msteams"></a>

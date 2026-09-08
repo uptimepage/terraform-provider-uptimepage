@@ -45,7 +45,7 @@ The [end-to-end configuration](https://github.com/uptimepage/terraform-provider-
 | Resource | What it is |
 |----------|------------|
 | `uptimepage_target` | A monitor: what to check, how often, and from which regions. |
-| `uptimepage_notification_channel` | Where an alert goes. Thirteen types: webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp and SMS. |
+| `uptimepage_notification_channel` | Where an alert goes. Fourteen types: webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, Mattermost, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp and SMS. |
 | `uptimepage_status_page` | A public status page: subdomain slug, branding and theme. Owner-only. |
 | `uptimepage_status_page_component` | A monitor shown on a status page. |
 
@@ -118,7 +118,9 @@ importing. On a target that is `check.http.basic_auth` and
 later. On a channel it is whichever secret its type uses: the webhook `url` and
 `headers`, a `webhook_url`, a Telegram `bot_token`, a PagerDuty `routing_key`,
 an ntfy or WhatsApp `access_token`, a Gotify or Pushover `token` (with a
-Pushover `user`), or the `auth_token`, `api_key`, `api_secret` and `api_token` an SMS provider needs.
+Pushover `user`), or the `auth_token`, `api_key`, `api_secret` and `api_token` an
+SMS provider needs. A Mattermost `webhook_url` is a secret in full: its path
+carries the key. The `mention` beside it is not, so it reads back visible.
 
 ## Hosted or self-hosted
 

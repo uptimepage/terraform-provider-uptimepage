@@ -88,6 +88,19 @@ resource "uptimepage_notification_channel" "gotify" {
   }
 }
 
+resource "uptimepage_notification_channel" "mattermost" {
+  name = "ops mattermost"
+  config = {
+    type = "mattermost"
+    mattermost = {
+      # Integrations -> Incoming Webhook. The key in the path is the secret.
+      webhook_url = var.mattermost_webhook_url
+      # Optional. Lowercased by the API; recovery messages never ping.
+      mention = "@here"
+    }
+  }
+}
+
 resource "uptimepage_notification_channel" "pushover" {
   name = "ops pushover"
   config = {

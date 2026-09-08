@@ -21,6 +21,7 @@ const (
 	ChannelTypePagerDuty  = "pagerduty"
 	ChannelTypeNtfy       = "ntfy"
 	ChannelTypeGotify     = "gotify"
+	ChannelTypeMattermost = "mattermost"
 	ChannelTypePushover   = "pushover"
 	ChannelTypeWhatsApp   = "whatsapp"
 	ChannelTypeSMS        = "sms"
@@ -75,6 +76,7 @@ type ChannelConfig struct {
 	PagerDuty  *PagerDutyConfig  `json:"-"`
 	Ntfy       *NtfyConfig       `json:"-"`
 	Gotify     *GotifyConfig     `json:"-"`
+	Mattermost *MattermostConfig `json:"-"`
 	Pushover   *PushoverConfig   `json:"-"`
 	WhatsApp   *WhatsAppConfig   `json:"-"`
 	SMS        *SMSConfig        `json:"-"`
@@ -138,6 +140,13 @@ type NtfyConfig struct {
 type GotifyConfig struct {
 	ServerURL string `json:"server_url"`
 	Token     string `json:"token"`
+}
+
+// MattermostConfig: webhook_url is redacted on read. mention is not, and the
+// API lowercases it.
+type MattermostConfig struct {
+	WebhookURL string `json:"webhook_url"`
+	Mention    string `json:"mention,omitempty"`
 }
 
 // PushoverConfig: token and user are both redacted on read. device is optional;
@@ -260,6 +269,14 @@ func (c ChannelConfig) MarshalJSON() ([]byte, error) {
 			Type string `json:"type"`
 			GotifyConfig
 		}{c.Type, *c.Gotify})
+	case ChannelTypeMattermost:
+		if c.Mattermost == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			MattermostConfig
+		}{c.Type, *c.Mattermost})
 	case ChannelTypePushover:
 		if c.Pushover == nil {
 			return nil, errNilPayload(c.Type)
@@ -331,6 +348,9 @@ func (c *ChannelConfig) UnmarshalJSON(data []byte) error {
 	case ChannelTypeGotify:
 		c.Gotify = new(GotifyConfig)
 		return json.Unmarshal(data, c.Gotify)
+	case ChannelTypeMattermost:
+		c.Mattermost = new(MattermostConfig)
+		return json.Unmarshal(data, c.Mattermost)
 	case ChannelTypePushover:
 		c.Pushover = new(PushoverConfig)
 		return json.Unmarshal(data, c.Pushover)

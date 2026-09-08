@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"regexp"
+	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -49,9 +50,37 @@ func (r *channelResource) Configure(_ context.Context, req resource.ConfigureReq
 	}
 }
 
+// Mirrors the API's check, which reads the parsed path alone; the leading
+// [^?#]* keeps the match out of the query string.
+var mattermostHookPath = regexp.MustCompile(`^[^?#]*/hooks/[^/?#]+/*([?#]|$)`)
+
+// The URL is the credential, and RegexMatches interpolates the value it
+// rejected into the diagnostic, which Terraform prints unscrubbed to the
+// console and to CI logs.
+type mattermostURLValidator struct{}
+
+func (mattermostURLValidator) Description(context.Context) string {
+	return "must be an https:// Mattermost incoming webhook URL, ending in /hooks/<key>"
+}
+
+func (v mattermostURLValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (v mattermostURLValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	url := req.ConfigValue.ValueString()
+	if strings.HasPrefix(url, "https://") && mattermostHookPath.MatchString(url) {
+		return
+	}
+	resp.Diagnostics.AddAttributeError(req.Path, "Invalid Attribute Value", v.Description(ctx))
+}
+
 func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp, or SMS).",
+		Description: "A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, Mattermost, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp, or SMS).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -81,13 +110,13 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:    true,
-						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, pagerduty, ntfy, gotify, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.",
+						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, mattermost, email, pagerduty, ntfy, gotify, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.",
 						Validators: []validator.String{stringvalidator.OneOf(
 							client.ChannelTypeWebhook, client.ChannelTypeSlack, client.ChannelTypeTelegram,
 							client.ChannelTypeDiscord, client.ChannelTypeMsTeams, client.ChannelTypeGoogleChat,
 							client.ChannelTypeEmail, client.ChannelTypePagerDuty, client.ChannelTypeNtfy,
-							client.ChannelTypeGotify, client.ChannelTypePushover, client.ChannelTypeWhatsApp,
-							client.ChannelTypeSMS)},
+							client.ChannelTypeGotify, client.ChannelTypeMattermost, client.ChannelTypePushover,
+							client.ChannelTypeWhatsApp, client.ChannelTypeSMS)},
 					},
 					"webhook": schema.SingleNestedAttribute{
 						Optional:    true,
@@ -234,6 +263,26 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 							},
 						},
 					},
+					"mattermost": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "Mattermost incoming webhook (when type = mattermost).",
+						Attributes: map[string]schema.Attribute{
+							"webhook_url": schema.StringAttribute{
+								Required: true, Sensitive: true,
+								Description: "Mattermost incoming webhook URL, ending in /hooks/<key>. " +
+									"The key is the whole secret, so the URL is write-only. A subpath " +
+									"install behind a reverse proxy is fine.",
+								Validators: []validator.String{mattermostURLValidator{}},
+							},
+							"mention": schema.StringAttribute{
+								Optional: true,
+								Description: "Who to ping on an alert: @channel, @here, @all, or a " +
+									"username or group name. Space or comma separated, up to 5. " +
+									"Lowercased by the API, and only on opened/reopened/escalated/" +
+									"no-data alerts. Not a secret, so it reads back visible.",
+							},
+						},
+					},
 					"pushover": schema.SingleNestedAttribute{
 						Optional:    true,
 						Description: "Pushover (when type = pushover).",
@@ -362,6 +411,7 @@ func (r *channelResource) ValidateConfig(ctx context.Context, req resource.Valid
 		client.ChannelTypePagerDuty:  cfg.Config.PagerDuty != nil,
 		client.ChannelTypeNtfy:       cfg.Config.Ntfy != nil,
 		client.ChannelTypeGotify:     cfg.Config.Gotify != nil,
+		client.ChannelTypeMattermost: cfg.Config.Mattermost != nil,
 		client.ChannelTypePushover:   cfg.Config.Pushover != nil,
 		client.ChannelTypeWhatsApp:   cfg.Config.WhatsApp != nil,
 		client.ChannelTypeSMS:        cfg.Config.SMS != nil,

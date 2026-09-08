@@ -187,6 +187,59 @@ func TestChannelConfig_RedactionSuppressed(t *testing.T) {
 		}
 	})
 
+	t.Run("mattermost_url_redacted_mention_visible", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeMattermost), Mattermost: &mattermostConfigModel{WebhookURL: types.StringValue("https://mm.example.com/hooks/real-key")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeMattermost, Mattermost: &client.MattermostConfig{WebhookURL: redactedSentinel, Mention: "@here"}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Mattermost.WebhookURL.ValueString() != "https://mm.example.com/hooks/real-key" {
+			t.Errorf("webhook_url not preserved: %q", got.Mattermost.WebhookURL.ValueString())
+		}
+		if got.Mattermost.Mention.ValueString() != "@here" {
+			t.Errorf("mention should reflect the API: %+v", got.Mattermost)
+		}
+	})
+
+	t.Run("mattermost_mention_keeps_the_config_spelling_when_only_case_differs", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeMattermost), Mattermost: &mattermostConfigModel{
+			WebhookURL: types.StringValue("https://mm.example.com/hooks/real-key"),
+			Mention:    types.StringValue("@Here, OnCall-SRE"),
+		}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeMattermost, Mattermost: &client.MattermostConfig{WebhookURL: redactedSentinel, Mention: "@here, oncall-sre"}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Mattermost.Mention.ValueString() != "@Here, OnCall-SRE" {
+			t.Errorf("case-only change should keep the config spelling, got %q", got.Mattermost.Mention.ValueString())
+		}
+	})
+
+	t.Run("mattermost_mention_reflects_a_real_change", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeMattermost), Mattermost: &mattermostConfigModel{Mention: types.StringValue("@here")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeMattermost, Mattermost: &client.MattermostConfig{WebhookURL: redactedSentinel, Mention: "@channel"}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Mattermost.Mention.ValueString() != "@channel" {
+			t.Errorf("real drift should surface, got %q", got.Mattermost.Mention.ValueString())
+		}
+	})
+
+	t.Run("mattermost_absent_mention_is_null", func(t *testing.T) {
+		cfg := client.ChannelConfig{Type: client.ChannelTypeMattermost, Mattermost: &client.MattermostConfig{WebhookURL: "https://mm.example.com/hooks/k"}}
+		got, d := configToModel(ctx, channelConfigModel{}, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if !got.Mattermost.Mention.IsNull() {
+			t.Errorf("absent mention should be null, got %q", got.Mattermost.Mention.ValueString())
+		}
+	})
+
 	t.Run("pushover_both_keys_redacted_emergency_reflected", func(t *testing.T) {
 		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypePushover), Pushover: &pushoverConfigModel{Token: types.StringValue("real-token"), User: types.StringValue("real-user")}}
 		cfg := client.ChannelConfig{Type: client.ChannelTypePushover, Pushover: &client.PushoverConfig{Token: redactedSentinel, User: redactedSentinel, Emergency: true}}

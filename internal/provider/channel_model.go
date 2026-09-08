@@ -34,6 +34,7 @@ type channelConfigModel struct {
 	PagerDuty  *pagerdutyConfigModel  `tfsdk:"pagerduty"`
 	Ntfy       *ntfyConfigModel       `tfsdk:"ntfy"`
 	Gotify     *gotifyConfigModel     `tfsdk:"gotify"`
+	Mattermost *mattermostConfigModel `tfsdk:"mattermost"`
 	Pushover   *pushoverConfigModel   `tfsdk:"pushover"`
 	WhatsApp   *whatsappConfigModel   `tfsdk:"whatsapp"`
 	SMS        *smsConfigModel        `tfsdk:"sms"`
@@ -82,6 +83,11 @@ type ntfyConfigModel struct {
 type gotifyConfigModel struct {
 	ServerURL types.String `tfsdk:"server_url"`
 	Token     types.String `tfsdk:"token"`
+}
+
+type mattermostConfigModel struct {
+	WebhookURL types.String `tfsdk:"webhook_url"`
+	Mention    types.String `tfsdk:"mention"`
 }
 
 type pushoverConfigModel struct {
@@ -208,6 +214,14 @@ func (c channelConfigModel) toWire(ctx context.Context) (client.ChannelConfig, d
 		out.Gotify = &client.GotifyConfig{
 			ServerURL: c.Gotify.ServerURL.ValueString(),
 			Token:     c.Gotify.Token.ValueString(),
+		}
+	case client.ChannelTypeMattermost:
+		if c.Mattermost == nil {
+			return out, missingBlock(kind)
+		}
+		out.Mattermost = &client.MattermostConfig{
+			WebhookURL: c.Mattermost.WebhookURL.ValueString(),
+			Mention:    c.Mattermost.Mention.ValueString(),
 		}
 	case client.ChannelTypePushover:
 		if c.Pushover == nil {
@@ -346,6 +360,20 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 		out.Gotify = &gotifyConfigModel{
 			ServerURL: types.StringValue(cfg.Gotify.ServerURL),
 			Token:     secretOrNull(priorToken, cfg.Gotify.Token),
+		}
+	case cfg.Mattermost != nil:
+		priorURL, priorMention := types.StringNull(), types.StringNull()
+		if prior.Mattermost != nil {
+			priorURL, priorMention = prior.Mattermost.WebhookURL, prior.Mattermost.Mention
+		}
+		var mention *string
+		if m := cfg.Mattermost.Mention; m != "" {
+			mention = &m
+		}
+		out.Mattermost = &mattermostConfigModel{
+			WebhookURL: keepSecret(priorURL, &cfg.Mattermost.WebhookURL),
+			// The API lowercases the ping; folding keeps the config's spelling.
+			Mention: keepOpt(priorMention, mention, true),
 		}
 	case cfg.Pushover != nil:
 		priorTok, priorUser := types.StringNull(), types.StringNull()
