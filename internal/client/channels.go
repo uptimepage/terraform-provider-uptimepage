@@ -20,6 +20,7 @@ const (
 	ChannelTypeEmail      = "email"
 	ChannelTypePagerDuty  = "pagerduty"
 	ChannelTypeNtfy       = "ntfy"
+	ChannelTypeGotify     = "gotify"
 	ChannelTypePushover   = "pushover"
 	ChannelTypeWhatsApp   = "whatsapp"
 	ChannelTypeSMS        = "sms"
@@ -73,6 +74,7 @@ type ChannelConfig struct {
 	Email      *EmailConfig      `json:"-"`
 	PagerDuty  *PagerDutyConfig  `json:"-"`
 	Ntfy       *NtfyConfig       `json:"-"`
+	Gotify     *GotifyConfig     `json:"-"`
 	Pushover   *PushoverConfig   `json:"-"`
 	WhatsApp   *WhatsAppConfig   `json:"-"`
 	SMS        *SMSConfig        `json:"-"`
@@ -128,6 +130,14 @@ type NtfyConfig struct {
 	ServerURL   string `json:"server_url,omitempty"`
 	Topic       string `json:"topic"`
 	AccessToken string `json:"access_token,omitempty"`
+}
+
+// GotifyConfig: token (an application token) is redacted on read. server_url
+// is the base URL of the customer's own server, path included when it is
+// served under one; deliveries publish to {server_url}/message.
+type GotifyConfig struct {
+	ServerURL string `json:"server_url"`
+	Token     string `json:"token"`
 }
 
 // PushoverConfig: token and user are both redacted on read. device is optional;
@@ -242,6 +252,14 @@ func (c ChannelConfig) MarshalJSON() ([]byte, error) {
 			Type string `json:"type"`
 			NtfyConfig
 		}{c.Type, *c.Ntfy})
+	case ChannelTypeGotify:
+		if c.Gotify == nil {
+			return nil, errNilPayload(c.Type)
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			GotifyConfig
+		}{c.Type, *c.Gotify})
 	case ChannelTypePushover:
 		if c.Pushover == nil {
 			return nil, errNilPayload(c.Type)
@@ -310,6 +328,9 @@ func (c *ChannelConfig) UnmarshalJSON(data []byte) error {
 	case ChannelTypeNtfy:
 		c.Ntfy = new(NtfyConfig)
 		return json.Unmarshal(data, c.Ntfy)
+	case ChannelTypeGotify:
+		c.Gotify = new(GotifyConfig)
+		return json.Unmarshal(data, c.Gotify)
 	case ChannelTypePushover:
 		c.Pushover = new(PushoverConfig)
 		return json.Unmarshal(data, c.Pushover)

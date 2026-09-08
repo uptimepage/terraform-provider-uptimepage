@@ -51,7 +51,7 @@ func (r *channelResource) Configure(_ context.Context, req resource.ConfigureReq
 
 func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Pushover, WhatsApp, or SMS).",
+		Description: "A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp, or SMS).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -81,12 +81,13 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:    true,
-						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, pagerduty, ntfy, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.",
+						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, pagerduty, ntfy, gotify, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.",
 						Validators: []validator.String{stringvalidator.OneOf(
 							client.ChannelTypeWebhook, client.ChannelTypeSlack, client.ChannelTypeTelegram,
 							client.ChannelTypeDiscord, client.ChannelTypeMsTeams, client.ChannelTypeGoogleChat,
 							client.ChannelTypeEmail, client.ChannelTypePagerDuty, client.ChannelTypeNtfy,
-							client.ChannelTypePushover, client.ChannelTypeWhatsApp, client.ChannelTypeSMS)},
+							client.ChannelTypeGotify, client.ChannelTypePushover, client.ChannelTypeWhatsApp,
+							client.ChannelTypeSMS)},
 					},
 					"webhook": schema.SingleNestedAttribute{
 						Optional:    true,
@@ -205,6 +206,31 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 							"access_token": schema.StringAttribute{
 								Optional: true, Sensitive: true,
 								Description: "Bearer token for protected topics. Write-only.",
+							},
+						},
+					},
+					"gotify": schema.SingleNestedAttribute{
+						Optional:    true,
+						Description: "Self-hosted Gotify server (when type = gotify).",
+						Attributes: map[string]schema.Attribute{
+							"server_url": schema.StringAttribute{
+								Required: true,
+								Description: "Base URL of your Gotify server, path included when it is served " +
+									"under one. Deliveries publish to {server_url}/message.",
+								// The API stores the base without its trailing slash, so a
+								// slash here would read back changed and fail the apply.
+								Validators: []validator.String{
+									stringvalidator.RegexMatches(
+										regexp.MustCompile(`^https://`),
+										"must be an https:// URL"),
+									stringvalidator.RegexMatches(
+										regexp.MustCompile(`[^/]$`),
+										"must not end in a slash"),
+								},
+							},
+							"token": schema.StringAttribute{
+								Required: true, Sensitive: true,
+								Description: "Application token, sent as X-Gotify-Key. Write-only.",
 							},
 						},
 					},
@@ -335,6 +361,7 @@ func (r *channelResource) ValidateConfig(ctx context.Context, req resource.Valid
 		client.ChannelTypeEmail:      cfg.Config.Email != nil,
 		client.ChannelTypePagerDuty:  cfg.Config.PagerDuty != nil,
 		client.ChannelTypeNtfy:       cfg.Config.Ntfy != nil,
+		client.ChannelTypeGotify:     cfg.Config.Gotify != nil,
 		client.ChannelTypePushover:   cfg.Config.Pushover != nil,
 		client.ChannelTypeWhatsApp:   cfg.Config.WhatsApp != nil,
 		client.ChannelTypeSMS:        cfg.Config.SMS != nil,

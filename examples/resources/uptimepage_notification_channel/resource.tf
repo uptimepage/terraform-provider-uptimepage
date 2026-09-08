@@ -76,6 +76,18 @@ resource "uptimepage_notification_channel" "ntfy" {
   }
 }
 
+resource "uptimepage_notification_channel" "gotify" {
+  name = "ops gotify"
+  config = {
+    type = "gotify"
+    gotify = {
+      # Base URL of your own server, no trailing slash; publishes to /message.
+      server_url = "https://push.example.com"
+      token      = var.gotify_token
+    }
+  }
+}
+
 resource "uptimepage_notification_channel" "pushover" {
   name = "ops pushover"
   config = {

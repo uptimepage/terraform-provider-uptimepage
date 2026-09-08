@@ -216,6 +216,7 @@ func TestChannelConfig_VariantsRoundTrip(t *testing.T) {
 		"email":       {Type: ChannelTypeEmail, Email: &EmailConfig{To: "oncall@example.com"}},
 		"pagerduty":   {Type: ChannelTypePagerDuty, PagerDuty: &PagerDutyConfig{RoutingKey: "R0123456789abcdef0123456789abcde"}},
 		"ntfy":        {Type: ChannelTypeNtfy, Ntfy: &NtfyConfig{ServerURL: "https://ntfy.sh", Topic: "uptime-alerts", AccessToken: "tk_x"}},
+		"gotify":      {Type: ChannelTypeGotify, Gotify: &GotifyConfig{ServerURL: "https://push.example.com/gotify", Token: "AbCdEfGhIjKlMnO"}},
 		"pushover":    {Type: ChannelTypePushover, Pushover: &PushoverConfig{Token: "azGDORePK8gMaC0QOYAMyEEuzJnyUi", User: "uQiRzpo4DXghDmr9QzzfQu27cmVRsG", Emergency: true}},
 		"whatsapp":    {Type: ChannelTypeWhatsApp, WhatsApp: &WhatsAppConfig{AccessToken: "EAAG", PhoneNumberID: "123", To: "15551234567", TemplateName: "uptime_alert"}},
 		"sms": {Type: ChannelTypeSMS, SMS: &SMSConfig{

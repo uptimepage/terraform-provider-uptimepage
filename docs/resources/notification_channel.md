@@ -3,12 +3,12 @@
 page_title: "uptimepage_notification_channel Resource - uptimepage"
 subcategory: ""
 description: |-
-  A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Pushover, WhatsApp, or SMS).
+  A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp, or SMS).
 ---
 
 # uptimepage_notification_channel (Resource)
 
-A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Pushover, WhatsApp, or SMS).
+A notification channel (webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp, or SMS).
 
 ## Example Usage
 
@@ -87,6 +87,18 @@ resource "uptimepage_notification_channel" "ntfy" {
       topic = "my-uptime-alerts"
       # server_url defaults to https://ntfy.sh; set it for a self-hosted server.
       # access_token = var.ntfy_token  # only for protected topics
+    }
+  }
+}
+
+resource "uptimepage_notification_channel" "gotify" {
+  name = "ops gotify"
+  config = {
+    type = "gotify"
+    gotify = {
+      # Base URL of your own server, no trailing slash; publishes to /message.
+      server_url = "https://push.example.com"
+      token      = var.gotify_token
     }
   }
 }
@@ -188,13 +200,14 @@ resource "uptimepage_target" "api" {
 
 Required:
 
-- `type` (String) Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, pagerduty, ntfy, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.
+- `type` (String) Channel type: webhook, slack, telegram, discord, msteams, google_chat, email, pagerduty, ntfy, gotify, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.
 
 Optional:
 
 - `discord` (Attributes) Discord channel webhook (when type = discord). (see [below for nested schema](#nestedatt--config--discord))
 - `email` (Attributes) Email recipient (when type = email). Delivery starts only after the address confirms the verification mail; track it via verified_at. (see [below for nested schema](#nestedatt--config--email))
 - `google_chat` (Attributes) Google Chat space webhook (when type = google_chat). (see [below for nested schema](#nestedatt--config--google_chat))
+- `gotify` (Attributes) Self-hosted Gotify server (when type = gotify). (see [below for nested schema](#nestedatt--config--gotify))
 - `msteams` (Attributes) Microsoft Teams incoming webhook (when type = msteams). (see [below for nested schema](#nestedatt--config--msteams))
 - `ntfy` (Attributes) ntfy topic push (when type = ntfy). (see [below for nested schema](#nestedatt--config--ntfy))
 - `pagerduty` (Attributes) PagerDuty Events API v2 (when type = pagerduty). (see [below for nested schema](#nestedatt--config--pagerduty))
@@ -227,6 +240,15 @@ Required:
 Required:
 
 - `webhook_url` (String, Sensitive) Google Chat webhook URL. Write-only.
+
+
+<a id="nestedatt--config--gotify"></a>
+### Nested Schema for `config.gotify`
+
+Required:
+
+- `server_url` (String) Base URL of your Gotify server, path included when it is served under one. Deliveries publish to {server_url}/message.
+- `token` (String, Sensitive) Application token, sent as X-Gotify-Key. Write-only.
 
 
 <a id="nestedatt--config--msteams"></a>

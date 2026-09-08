@@ -172,6 +172,21 @@ func TestChannelConfig_RedactionSuppressed(t *testing.T) {
 		}
 	})
 
+	t.Run("gotify_token_redacted_serverurl_visible", func(t *testing.T) {
+		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypeGotify), Gotify: &gotifyConfigModel{Token: types.StringValue("real-tok")}}
+		cfg := client.ChannelConfig{Type: client.ChannelTypeGotify, Gotify: &client.GotifyConfig{ServerURL: "https://push.example.com/gotify", Token: redactedSentinel}}
+		got, d := configToModel(ctx, prior, cfg)
+		if d.HasError() {
+			t.Fatalf("diags: %v", d)
+		}
+		if got.Gotify.Token.ValueString() != "real-tok" {
+			t.Errorf("token not preserved: %q", got.Gotify.Token.ValueString())
+		}
+		if got.Gotify.ServerURL.ValueString() != "https://push.example.com/gotify" {
+			t.Errorf("non-secret gotify fields should reflect API: %+v", got.Gotify)
+		}
+	})
+
 	t.Run("pushover_both_keys_redacted_emergency_reflected", func(t *testing.T) {
 		prior := channelConfigModel{Type: types.StringValue(client.ChannelTypePushover), Pushover: &pushoverConfigModel{Token: types.StringValue("real-token"), User: types.StringValue("real-user")}}
 		cfg := client.ChannelConfig{Type: client.ChannelTypePushover, Pushover: &client.PushoverConfig{Token: redactedSentinel, User: redactedSentinel, Emergency: true}}

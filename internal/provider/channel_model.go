@@ -33,6 +33,7 @@ type channelConfigModel struct {
 	Email      *emailConfigModel      `tfsdk:"email"`
 	PagerDuty  *pagerdutyConfigModel  `tfsdk:"pagerduty"`
 	Ntfy       *ntfyConfigModel       `tfsdk:"ntfy"`
+	Gotify     *gotifyConfigModel     `tfsdk:"gotify"`
 	Pushover   *pushoverConfigModel   `tfsdk:"pushover"`
 	WhatsApp   *whatsappConfigModel   `tfsdk:"whatsapp"`
 	SMS        *smsConfigModel        `tfsdk:"sms"`
@@ -76,6 +77,11 @@ type ntfyConfigModel struct {
 	ServerURL   types.String `tfsdk:"server_url"`
 	Topic       types.String `tfsdk:"topic"`
 	AccessToken types.String `tfsdk:"access_token"`
+}
+
+type gotifyConfigModel struct {
+	ServerURL types.String `tfsdk:"server_url"`
+	Token     types.String `tfsdk:"token"`
 }
 
 type pushoverConfigModel struct {
@@ -194,6 +200,14 @@ func (c channelConfigModel) toWire(ctx context.Context) (client.ChannelConfig, d
 			ServerURL:   c.Ntfy.ServerURL.ValueString(),
 			Topic:       c.Ntfy.Topic.ValueString(),
 			AccessToken: c.Ntfy.AccessToken.ValueString(),
+		}
+	case client.ChannelTypeGotify:
+		if c.Gotify == nil {
+			return out, missingBlock(kind)
+		}
+		out.Gotify = &client.GotifyConfig{
+			ServerURL: c.Gotify.ServerURL.ValueString(),
+			Token:     c.Gotify.Token.ValueString(),
 		}
 	case client.ChannelTypePushover:
 		if c.Pushover == nil {
@@ -323,6 +337,15 @@ func configToModel(ctx context.Context, prior channelConfigModel, cfg client.Cha
 			ServerURL:   types.StringValue(cfg.Ntfy.ServerURL),
 			Topic:       types.StringValue(cfg.Ntfy.Topic),
 			AccessToken: secretOrNull(priorToken, cfg.Ntfy.AccessToken),
+		}
+	case cfg.Gotify != nil:
+		priorToken := types.StringNull()
+		if prior.Gotify != nil {
+			priorToken = prior.Gotify.Token
+		}
+		out.Gotify = &gotifyConfigModel{
+			ServerURL: types.StringValue(cfg.Gotify.ServerURL),
+			Token:     secretOrNull(priorToken, cfg.Gotify.Token),
 		}
 	case cfg.Pushover != nil:
 		priorTok, priorUser := types.StringNull(), types.StringNull()
