@@ -11,24 +11,28 @@ import (
 // statusPageModel is the tfsdk view of an uptimepage_status_page. Branding
 // fields are flattened onto the resource; logo_url / status_url are read-only.
 type statusPageModel struct {
-	ID            types.String `tfsdk:"id"`
-	Slug          types.String `tfsdk:"slug"`
-	Name          types.String `tfsdk:"name"`
-	Enabled       types.Bool   `tfsdk:"enabled"`
-	DisplayName   types.String `tfsdk:"display_name"`
-	About         types.String `tfsdk:"about"`
-	BrandColor    types.String `tfsdk:"brand_color"`
-	Style         types.String `tfsdk:"style"`
-	ShowPoweredBy types.Bool   `tfsdk:"show_powered_by"`
-	LogoURL       types.String `tfsdk:"logo_url"`
-	StatusURL     types.String `tfsdk:"status_url"`
+	ID             types.String `tfsdk:"id"`
+	Slug           types.String `tfsdk:"slug"`
+	Name           types.String `tfsdk:"name"`
+	Enabled        types.Bool   `tfsdk:"enabled"`
+	DisplayName    types.String `tfsdk:"display_name"`
+	About          types.String `tfsdk:"about"`
+	BrandColor     types.String `tfsdk:"brand_color"`
+	Style          types.String `tfsdk:"style"`
+	ShowPoweredBy  types.Bool   `tfsdk:"show_powered_by"`
+	HideFromSearch types.Bool   `tfsdk:"hide_from_search"`
+	WebsiteURL     types.String `tfsdk:"website_url"`
+	LogoURL        types.String `tfsdk:"logo_url"`
+	StatusURL      types.String `tfsdk:"status_url"`
 }
 
+// Create carries identity only, and always unpublished: branding arrives in the
+// follow-up PATCH, so publishing here would serve the page indexable before
+// hide_from_search lands — and leave it that way if that PATCH fails.
 func (m statusPageModel) toNew() client.NewStatusPage {
 	return client.NewStatusPage{
-		Slug:    m.Slug.ValueString(),
-		Name:    m.Name.ValueString(),
-		Enabled: m.Enabled.ValueBool(),
+		Slug: m.Slug.ValueString(),
+		Name: m.Name.ValueString(),
 	}
 }
 
@@ -38,11 +42,13 @@ func (m statusPageModel) toUpdate() client.StatusPageUpdate {
 		Slug:    m.Slug.ValueString(),
 		Enabled: m.Enabled.ValueBool(),
 		Branding: client.StatusBranding{
-			PublicDisplayName:   optString(m.DisplayName),
-			PublicAbout:         optString(m.About),
-			PublicBrandColor:    optString(m.BrandColor),
-			PublicStyle:         optString(m.Style),
-			PublicShowPoweredBy: optBool(m.ShowPoweredBy),
+			PublicDisplayName:    optString(m.DisplayName),
+			PublicAbout:          optString(m.About),
+			PublicBrandColor:     optString(m.BrandColor),
+			PublicStyle:          optString(m.Style),
+			PublicShowPoweredBy:  optBool(m.ShowPoweredBy),
+			PublicHideFromSearch: optBool(m.HideFromSearch),
+			PublicWebsiteURL:     optString(m.WebsiteURL),
 		},
 	}
 }
@@ -52,17 +58,19 @@ func (m statusPageModel) toUpdate() client.StatusPageUpdate {
 // a `MyPage` -> `mypage` lowercasing doesn't diff forever.
 func statusPageToModel(prior statusPageModel, p *client.StatusPage) statusPageModel {
 	return statusPageModel{
-		ID:            types.StringValue(p.ID),
-		Slug:          keepReq(prior.Slug, p.Slug, true),
-		Name:          keepReq(prior.Name, p.Name, false),
-		Enabled:       types.BoolValue(p.Enabled),
-		DisplayName:   keepOpt(prior.DisplayName, p.PublicDisplayName, false),
-		About:         keepOpt(prior.About, p.PublicAbout, false),
-		BrandColor:    keepOpt(prior.BrandColor, p.PublicBrandColor, true),
-		Style:         types.StringValue(p.PublicStyle),
-		ShowPoweredBy: fromOptBool(p.PublicShowPoweredBy),
-		LogoURL:       fromOptString(p.LogoURL),
-		StatusURL:     fromOptString(p.StatusURL),
+		ID:             types.StringValue(p.ID),
+		Slug:           keepReq(prior.Slug, p.Slug, true),
+		Name:           keepReq(prior.Name, p.Name, false),
+		Enabled:        types.BoolValue(p.Enabled),
+		DisplayName:    keepOpt(prior.DisplayName, p.PublicDisplayName, false),
+		About:          keepOpt(prior.About, p.PublicAbout, false),
+		BrandColor:     keepOpt(prior.BrandColor, p.PublicBrandColor, true),
+		Style:          types.StringValue(p.PublicStyle),
+		ShowPoweredBy:  fromOptBool(p.PublicShowPoweredBy),
+		HideFromSearch: types.BoolValue(p.PublicHideFromSearch),
+		WebsiteURL:     keepOpt(prior.WebsiteURL, p.PublicWebsiteURL, false),
+		LogoURL:        fromOptString(p.LogoURL),
+		StatusURL:      fromOptString(p.StatusURL),
 	}
 }
 

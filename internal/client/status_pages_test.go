@@ -40,6 +40,75 @@ func TestCreateStatusPage_SendsIdentityOnly(t *testing.T) {
 	}
 }
 
+func TestUpdateStatusPage_CarriesSearchVisibilityAndWebsite(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var raw struct {
+			Branding map[string]json.RawMessage `json:"branding"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &raw)
+		if got := string(raw.Branding["public_hide_from_search"]); got != "true" {
+			t.Errorf("public_hide_from_search = %s, want true", got)
+		}
+		if got := string(raw.Branding["public_website_url"]); got != `"https://acme.example"` {
+			t.Errorf("public_website_url = %s", got)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"p1","slug":"acme","name":"Acme","enabled":true,"public_style":"default",` +
+			`"show_powered_by":true,"public_hide_from_search":true,"public_website_url":"https://acme.example"}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", "", srv.Client())
+	got, err := c.UpdateStatusPage(context.Background(), "p1", StatusPageUpdate{
+		Name: "Acme", Slug: "acme", Enabled: true,
+		Branding: StatusBranding{
+			PublicHideFromSearch: ptr(true),
+			PublicWebsiteURL:     ptr("https://acme.example"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateStatusPage: %v", err)
+	}
+	if !got.PublicHideFromSearch {
+		t.Error("public_hide_from_search should decode as true")
+	}
+	if got.PublicWebsiteURL == nil || *got.PublicWebsiteURL != "https://acme.example" {
+		t.Errorf("public_website_url = %v", got.PublicWebsiteURL)
+	}
+}
+
+// A cleared website must travel as null, never be omitted, or the API keeps the
+// old link.
+func TestUpdateStatusPage_ClearedWebsiteMarshalsNull(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var raw struct {
+			Branding map[string]json.RawMessage `json:"branding"`
+		}
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &raw)
+		v, has := raw.Branding["public_website_url"]
+		if !has || string(v) != "null" {
+			t.Errorf("public_website_url = %s (has=%v), want null", v, has)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"p1","slug":"acme","name":"Acme","enabled":true,"public_style":"default","show_powered_by":true,"public_hide_from_search":false}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", "", srv.Client())
+	got, err := c.UpdateStatusPage(context.Background(), "p1", StatusPageUpdate{Name: "Acme", Slug: "acme"})
+	if err != nil {
+		t.Fatalf("UpdateStatusPage: %v", err)
+	}
+	if got.PublicWebsiteURL != nil {
+		t.Errorf("cleared website should decode as nil, got %q", *got.PublicWebsiteURL)
+	}
+	if got.PublicHideFromSearch {
+		t.Error("public_hide_from_search should decode as false")
+	}
+}
+
 func TestUpdateStatusPage_NilBrandingMarshalsNull(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch || r.URL.Path != "/api/v1/status-pages/p1" {

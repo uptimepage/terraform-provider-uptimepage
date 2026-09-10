@@ -4,11 +4,14 @@ import (
 	"context"
 	"regexp"
 
+	"unicode/utf8"
+
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
@@ -46,6 +49,33 @@ func (r *statusPageResource) Configure(_ context.Context, req resource.Configure
 		r.api = c
 	}
 }
+
+// Mirrors the API's own predicate (scheme + host + 200 characters) so a bad
+// URL fails at plan rather than mid-apply. RegexMatches alone would pass a
+// host-less `https://`, and LengthAtMost counts bytes where the API counts
+// characters.
+type websiteURLValidator struct{}
+
+func (websiteURLValidator) Description(context.Context) string {
+	return "must be an http:// or https:// URL with a host, at most 200 characters"
+}
+
+func (v websiteURLValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (v websiteURLValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	raw := req.ConfigValue.ValueString()
+	if utf8.RuneCountInString(raw) <= 200 && websiteURL.MatchString(raw) {
+		return
+	}
+	resp.Diagnostics.AddAttributeError(req.Path, "Invalid Attribute Value", v.Description(ctx))
+}
+
+var websiteURL = regexp.MustCompile(`(?i)^https?://[^/?#\s]+`)
 
 func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
@@ -93,8 +123,24 @@ func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Validators:  []validator.String{stringvalidator.OneOf(client.StatusPageStyles...)},
 			},
 			"show_powered_by": schema.BoolAttribute{
-				Optional:    true,
-				Description: "Pin the 'powered by' footer on or off. Omit to inherit the deployment default.",
+				Optional: true,
+				Computed: true,
+				Description: "Pin the 'powered by' footer on or off. Omit to inherit the deployment default. " +
+					"Honoured only on plans that sell white-label; elsewhere the badge renders whatever this says.",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+			},
+			"hide_from_search": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				Description: "Serve the page, its incident pages and its feed with `noindex`. The URL keeps working for anyone who has it. " +
+					"Omit to keep whatever the page already has, so a page hidden from the console is not republished by an apply.",
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+			},
+			"website_url": schema.StringAttribute{
+				Optional: true,
+				Description: "Your own site. The page header links here, so a reader who arrived from it can get back. " +
+					"`http(s)` only, at most 200 characters.",
+				Validators: []validator.String{websiteURLValidator{}},
 			},
 			"logo_url": schema.StringAttribute{
 				Computed:    true,
@@ -115,8 +161,6 @@ func (r *statusPageResource) Create(ctx context.Context, req resource.CreateRequ
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	// Create carries identity only; a follow-up PATCH applies branding so the
-	// page reflects the full desired state in one converged path.
 	created, err := r.api.CreateStatusPage(ctx, plan.toNew())
 	if err != nil {
 		resp.Diagnostics.AddError("Create status page failed", err.Error())

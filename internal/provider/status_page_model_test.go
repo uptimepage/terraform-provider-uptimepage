@@ -35,6 +35,97 @@ func TestStatusPageToUpdate_BrandingPointers(t *testing.T) {
 	}
 }
 
+func TestStatusPageToUpdate_CarriesSearchVisibilityAndWebsite(t *testing.T) {
+	m := statusPageModel{
+		Slug:           types.StringValue("acme"),
+		Name:           types.StringValue("Acme"),
+		HideFromSearch: types.BoolValue(true),
+		WebsiteURL:     types.StringValue("https://acme.example"),
+	}
+	up := m.toUpdate()
+	if up.Branding.PublicHideFromSearch == nil {
+		t.Error("hide_from_search = nil, want true")
+	} else if !*up.Branding.PublicHideFromSearch {
+		t.Error("hide_from_search = false, want true")
+	}
+	if up.Branding.PublicWebsiteURL == nil {
+		t.Error("website_url = nil, want https://acme.example")
+	} else if *up.Branding.PublicWebsiteURL != "https://acme.example" {
+		t.Errorf("website_url = %q", *up.Branding.PublicWebsiteURL)
+	}
+
+	// An unset website clears it; the flag still travels, so a page hidden in
+	// the UI is not silently republished by the next apply.
+	cleared := statusPageModel{
+		Slug:           types.StringValue("acme"),
+		Name:           types.StringValue("Acme"),
+		HideFromSearch: types.BoolValue(true),
+		WebsiteURL:     types.StringNull(),
+	}.toUpdate()
+	if cleared.Branding.PublicWebsiteURL != nil {
+		t.Errorf("website_url should clear, got %v", *cleared.Branding.PublicWebsiteURL)
+	}
+	if cleared.Branding.PublicHideFromSearch == nil || !*cleared.Branding.PublicHideFromSearch {
+		t.Error("hide_from_search must survive an unset website")
+	}
+}
+
+func TestStatusPageToModel_ReadsSearchVisibilityAndWebsite(t *testing.T) {
+	site := "https://acme.example"
+	got := statusPageToModel(statusPageModel{}, &client.StatusPage{
+		ID:                   "id",
+		Slug:                 "acme",
+		Name:                 "Acme",
+		PublicStyle:          "default",
+		PublicHideFromSearch: true,
+		PublicWebsiteURL:     &site,
+	})
+	if !got.HideFromSearch.ValueBool() {
+		t.Error("hide_from_search should read back true")
+	}
+	if got.WebsiteURL.ValueString() != site {
+		t.Errorf("website_url = %q", got.WebsiteURL.ValueString())
+	}
+
+	// A trailing-space config value the API trimmed stays as the user wrote it.
+	prior := statusPageModel{WebsiteURL: types.StringValue("https://acme.example ")}
+	kept := statusPageToModel(prior, &client.StatusPage{
+		ID:               "id",
+		Slug:             "acme",
+		Name:             "Acme",
+		PublicStyle:      "default",
+		PublicWebsiteURL: &site,
+	})
+	if kept.WebsiteURL.ValueString() != "https://acme.example " {
+		t.Errorf("canonicalized value should keep the user spelling, got %q", kept.WebsiteURL.ValueString())
+	}
+}
+
+func TestStatusPageToNew_CreatesUnpublished(t *testing.T) {
+	in := statusPageModel{
+		Slug:    types.StringValue("acme"),
+		Name:    types.StringValue("Acme"),
+		Enabled: types.BoolValue(true),
+	}.toNew()
+	if in.Enabled {
+		t.Error("create must not publish: branding, and hide_from_search with it, lands in the follow-up PATCH")
+	}
+}
+
+func TestStatusPageToUpdate_UndeclaredFlagKeepsPriorValue(t *testing.T) {
+	// What the framework hands a plan whose config omits hide_from_search:
+	// UseStateForUnknown fills it from state, so a page hidden in the console
+	// is re-sent hidden rather than reset.
+	up := statusPageModel{
+		Slug:           types.StringValue("acme"),
+		Name:           types.StringValue("Acme"),
+		HideFromSearch: types.BoolValue(true),
+	}.toUpdate()
+	if up.Branding.PublicHideFromSearch == nil || !*up.Branding.PublicHideFromSearch {
+		t.Error("an adopted true must travel as true")
+	}
+}
+
 func TestStatusPageToModel_KeepsSlugCaseAndComputed(t *testing.T) {
 	prior := statusPageModel{Slug: types.StringValue("Acme")} // user wrote mixed case
 	got := statusPageToModel(prior, &client.StatusPage{

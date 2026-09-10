@@ -28,10 +28,12 @@ type StatusPage struct {
 	PublicStyle       string  `json:"public_style"`
 	// Raw override (nil = inherit the deployment default); round-trips the
 	// tri-state. ShowPoweredBy is the resolved value, for reference only.
-	PublicShowPoweredBy *bool   `json:"public_show_powered_by,omitempty"`
-	ShowPoweredBy       bool    `json:"show_powered_by"`
-	LogoURL             *string `json:"logo_url,omitempty"`
-	StatusURL           *string `json:"status_url,omitempty"`
+	PublicShowPoweredBy  *bool   `json:"public_show_powered_by,omitempty"`
+	ShowPoweredBy        bool    `json:"show_powered_by"`
+	PublicHideFromSearch bool    `json:"public_hide_from_search"`
+	PublicWebsiteURL     *string `json:"public_website_url,omitempty"`
+	LogoURL              *string `json:"logo_url,omitempty"`
+	StatusURL            *string `json:"status_url,omitempty"`
 }
 
 // NewStatusPage is the POST body. Branding is set via a follow-up PATCH, so only
@@ -51,15 +53,19 @@ type StatusPageUpdate struct {
 	Branding StatusBranding `json:"branding"`
 }
 
-// StatusBranding is the page's display branding. A nil pointer marshals to JSON
-// null, which clears the field (display_name/about/brand_color) or applies the
-// server default (style/show_powered_by) — Terraform always sends full state.
+// StatusBranding is the page's display branding, sent whole on every PATCH. A
+// nil pointer marshals to JSON null: display_name, about, brand_color and
+// website_url clear, style falls back to the server default, and
+// hide_from_search reads as false — null does not mean "leave as is".
+// show_powered_by is accepted and ignored while the badge is pinned on.
 type StatusBranding struct {
-	PublicDisplayName   *string `json:"public_display_name"`
-	PublicAbout         *string `json:"public_about"`
-	PublicBrandColor    *string `json:"public_brand_color"`
-	PublicStyle         *string `json:"public_style"`
-	PublicShowPoweredBy *bool   `json:"public_show_powered_by"`
+	PublicDisplayName    *string `json:"public_display_name"`
+	PublicAbout          *string `json:"public_about"`
+	PublicBrandColor     *string `json:"public_brand_color"`
+	PublicStyle          *string `json:"public_style"`
+	PublicShowPoweredBy  *bool   `json:"public_show_powered_by"`
+	PublicHideFromSearch *bool   `json:"public_hide_from_search"`
+	PublicWebsiteURL     *string `json:"public_website_url"`
 }
 
 func (c *Client) CreateStatusPage(ctx context.Context, in NewStatusPage) (*StatusPage, error) {

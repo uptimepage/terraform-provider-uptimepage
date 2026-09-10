@@ -8,4 +8,7 @@ resource "uptimepage_status_page" "public" {
   brand_color     = "#0a7cff"
   style           = "default"
   show_powered_by = true
+
+  website_url      = "https://acme.example"
+  hide_from_search = false
 }
