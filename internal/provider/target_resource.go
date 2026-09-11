@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
@@ -18,6 +19,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
@@ -102,7 +104,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				ElementType: types.StringType,
 				Description: "Regions this target probes from, as operator-defined slugs (e.g. \"us-east\", \"apac-sg\"). " +
 					"Omit to accept the server's default set on create, which need not be every region the fleet has (the uptimepage_regions data source lists them all) — that set is read back into state with no perpetual diff. " +
-					"Set it to enforce an exact set; the set is replaced wholesale on change. The server requires at least one region and rejects unknown or disabled ids.",
+					"Set it to enforce an exact set: it travels with the create, so an unknown or disabled id refuses the whole create and no target is left behind, and it is replaced wholesale on change. The server requires at least one region.",
 				// No Default: unlike tags (which default to empty), an omitted set
 				// is server-computed (the auto-assigned region set), not empty.
 				// UseStateForUnknown keeps the prior set in the plan when config is
@@ -123,24 +125,55 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Optional:    true,
 				Computed:    true,
 				Default:     listdefault.StaticValue(types.ListValueMust(alertObjectType, []attr.Value{})),
-				Description: "Alert bindings to notification channels.",
+				Description: "Notification channels this target alerts through. When it fires is the target's own alert_confirmations, notify_recovery and renotify_interval_secs.",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"channel_id": schema.StringAttribute{
 							Required:    true,
 							Description: "Notification channel id (UUID).",
 						},
-						"after_failures": schema.Int64Attribute{
-							Required:    true,
-							Description: "Consecutive failed checks before alerting (1..1000000).",
-							Validators:  []validator.Int64{int64validator.Between(1, 1_000_000)},
-						},
-						"notify_recovery": schema.BoolAttribute{
-							Optional:    true,
-							Computed:    true,
-							Default:     booldefault.StaticBool(true),
-							Description: "Send a recovery notification when the target comes back up.",
-						},
+					},
+				},
+			},
+			"alert_confirmations": schema.Int64Attribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     int64default.StaticInt64(2),
+				Description: "Consecutive failing checks before an incident opens, and passing checks before it closes.",
+				Validators:  []validator.Int64{int64validator.Between(1, math.MaxUint32)},
+			},
+			"notify_recovery": schema.BoolAttribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     booldefault.StaticBool(true),
+				Description: "Announce the recovery to the bound channels when the target comes back up.",
+			},
+			"renotify_interval_secs": schema.Int64Attribute{
+				Optional:    true,
+				Computed:    true,
+				Default:     int64default.StaticInt64(3600),
+				Description: "Seconds before the first reminder while an incident stays unacknowledged; each further reminder waits twice as long, up to a day. 0 turns reminders off; otherwise at least 60.",
+				Validators:  []validator.Int64{int64validator.Any(int64validator.OneOf(0), int64validator.Between(60, math.MaxUint32))},
+			},
+			"region_policy": schema.SingleNestedAttribute{
+				Optional: true,
+				Computed: true,
+				Default: objectdefault.StaticValue(types.ObjectValueMust(regionPolicyObjectType.AttrTypes, map[string]attr.Value{
+					"mode":  types.StringValue(client.RegionPolicyMajority),
+					"count": types.Int64Null(),
+				})),
+				Description: "How many probe regions must agree the target is down before an incident opens. Majority (the default) suppresses a single location's network blip; a count wider than the regions the target is assigned is clamped to the regions that report.",
+				Attributes: map[string]schema.Attribute{
+					"mode": schema.StringAttribute{
+						Required:    true,
+						Description: "One of: any, majority, all, count.",
+						Validators: []validator.String{stringvalidator.OneOf(
+							client.RegionPolicyAny, client.RegionPolicyMajority, client.RegionPolicyAll, client.RegionPolicyCount)},
+					},
+					"count": schema.Int64Attribute{
+						Optional:    true,
+						Description: "Regions that must agree when mode = count. The API refuses a count above the region catalog.",
+						Validators:  []validator.Int64{int64validator.Between(1, math.MaxUint32)},
 					},
 				},
 			},
@@ -565,29 +598,15 @@ func (r *targetResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	// Regions are a sub-resource. If the user configured a set, enforce it;
-	// otherwise read back the set the server auto-assigned on create.
-	desired := plan.regions(ctx, &resp.Diagnostics)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-	var applied []string
-	if desired != nil {
-		applied, err = r.api.SetTargetRegions(ctx, created.ID, desired)
-		if err != nil {
-			resp.Diagnostics.AddError("Set target regions failed", err.Error())
-			// The PUT failed (e.g. an invalid region id) but the target exists
-			// with its auto-assigned set. Persist it with that set, if readable,
-			// so Terraform tracks it instead of leaking an untracked target.
-			if cur, gerr := r.api.GetTargetRegions(ctx, created.ID); gerr == nil {
-				state.Regions = regionsToSet(ctx, cur, &resp.Diagnostics)
-				resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
-			}
-			return
-		}
-	} else {
+	// A named set was applied as sent or the create was refused, so only a
+	// server-chosen one needs reading back. The target exists whatever that
+	// read says: state lands before the error so nothing is orphaned.
+	applied := in.Regions
+	if applied == nil {
 		applied, err = r.api.GetTargetRegions(ctx, created.ID)
 		if err != nil {
+			state.Regions = types.SetNull(types.StringType)
+			resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 			resp.Diagnostics.AddError("Read target regions failed", err.Error())
 			return
 		}
@@ -723,12 +742,14 @@ func (r *targetResource) ValidateConfig(ctx context.Context, req resource.Valida
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	validateTargetConfig(cfg, &resp.Diagnostics)
+	validateTargetConfig(ctx, cfg, &resp.Diagnostics)
 }
 
 // Split from the framework plumbing so the rules can be exercised against a
 // model rather than a hand-built tfsdk.Config.
-func validateTargetConfig(cfg targetModel, diags *diag.Diagnostics) {
+func validateTargetConfig(ctx context.Context, cfg targetModel, diags *diag.Diagnostics) {
+	validateRegionPolicy(regionPolicyBlock(ctx, cfg.RegionPolicy, diags), diags)
+
 	// Null/unknown type: let the framework's Required validator own that error.
 	if cfg.Check.Type.IsUnknown() || cfg.Check.Type.IsNull() {
 		return
@@ -748,8 +769,7 @@ func validateTargetConfig(cfg targetModel, diags *diag.Diagnostics) {
 		if cfg.Check.Heartbeat != nil {
 			validateHeartbeatCadence(cfg.Interval, cfg.Check.Heartbeat, diags)
 		}
-		// The API 422s the regions PUT for a passive check. Left to apply, the
-		// target is created first and only then refused its regions.
+		// The API refuses the create; the plan says so earlier and names the attribute.
 		if !cfg.Regions.IsNull() && !cfg.Regions.IsUnknown() {
 			diags.AddAttributeError(path.Root("regions"),
 				"A heartbeat is not probed from regions",
@@ -778,6 +798,21 @@ func validateTargetConfig(cfg targetModel, diags *diag.Diagnostics) {
 				"Set either password (persisted to Terraform state) or password_wo with password_wo_version (write-only, Terraform 1.11+).",
 			)
 		}
+	}
+}
+
+func validateRegionPolicy(p *regionPolicyModel, diags *diag.Diagnostics) {
+	if p == nil || p.Mode.IsNull() || p.Mode.IsUnknown() {
+		return
+	}
+	at := path.Root("region_policy").AtName("count")
+	switch {
+	case p.Mode.ValueString() == client.RegionPolicyCount && p.Count.IsNull():
+		diags.AddAttributeError(at, "Missing region_policy count",
+			`mode = "count" needs count, the number of regions that must agree.`)
+	case p.Mode.ValueString() != client.RegionPolicyCount && !p.Count.IsNull():
+		diags.AddAttributeError(at, "Unexpected region_policy count",
+			fmt.Sprintf("count applies to mode = \"count\" only, not %q.", p.Mode.ValueString()))
 	}
 }
 

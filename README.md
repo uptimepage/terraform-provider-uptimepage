@@ -39,10 +39,8 @@ resource "uptimepage_target" "api" {
       expected_status = { kind = "exact", exact = 200 }
     }
   }
-  alerts = [{
-    channel_id     = uptimepage_notification_channel.slack.id
-    after_failures = 3
-  }]
+  alerts              = [{ channel_id = uptimepage_notification_channel.slack.id }]
+  alert_confirmations = 3
 }
 ```
 

@@ -29,9 +29,12 @@ func validateDiscriminatedBlock(base path.Path, kind string, present map[string]
 // alertObjectType is the element type of the alerts list, reused by the schema
 // default and any list construction.
 var alertObjectType = types.ObjectType{AttrTypes: map[string]attr.Type{
-	"channel_id":      types.StringType,
-	"after_failures":  types.Int64Type,
-	"notify_recovery": types.BoolType,
+	"channel_id": types.StringType,
+}}
+
+var regionPolicyObjectType = types.ObjectType{AttrTypes: map[string]attr.Type{
+	"mode":  types.StringType,
+	"count": types.Int64Type,
 }}
 
 // clientFromProviderData extracts the shared *client.Client set by the provider

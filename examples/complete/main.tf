@@ -65,10 +65,8 @@ resource "uptimepage_target" "api" {
     }
   }
 
-  alerts = [{
-    channel_id     = uptimepage_notification_channel.slack.id
-    after_failures = 3
-  }]
+  alerts              = [{ channel_id = uptimepage_notification_channel.slack.id }]
+  alert_confirmations = 3
 }
 
 resource "uptimepage_status_page" "public" {

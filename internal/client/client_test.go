@@ -67,6 +67,70 @@ func TestCreateTarget_SendsAuthAndDecodes(t *testing.T) {
 	}
 }
 
+// The server refuses unknown keys, so the wire shape is the contract.
+func TestCreateTarget_WireKeys(t *testing.T) {
+	var bodies []map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &body); err != nil {
+			t.Errorf("body is not an object: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		bodies = append(bodies, body)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"01h7","name":"api prod","check":{"type":"tcp","host":"db","port":5432,"timeout":1000},"interval":60,"enabled":true,"tags":[],"alerts":[{"channel_id":"c1"}],"alert_confirmations":3,"notify_recovery":false,"renotify_interval_secs":0,"group_name":null,"owner_user_id":null}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "sm_live_test", "", srv.Client())
+	in := NewTarget{
+		Name:     "api prod",
+		Interval: 60,
+		Enabled:  true,
+		Check:    CheckSpec{Type: CheckTypeTCP, TCP: &TCPCheck{Host: "db", Port: 5432, Timeout: 1000}},
+		Alerts:   []AlertBinding{{ChannelID: "c1"}},
+		Regions:  []string{"eu-frankfurt"},
+		FiringPolicy: FiringPolicy{
+			AlertConfirmations:   3,
+			NotifyRecovery:       false,
+			RenotifyIntervalSecs: 0,
+			RegionPolicy:         &RegionPolicy{Mode: RegionPolicyAll},
+		},
+	}
+	got, err := c.CreateTarget(context.Background(), in)
+	if err != nil {
+		t.Fatalf("CreateTarget: %v", err)
+	}
+	if got.AlertConfirmations != 3 || got.NotifyRecovery || got.RenotifyIntervalSecs != 0 {
+		t.Errorf("firing policy not decoded: %+v", got)
+	}
+	in.Regions = nil
+	if _, err := c.CreateTarget(context.Background(), in); err != nil {
+		t.Fatalf("CreateTarget without regions: %v", err)
+	}
+
+	pinned, plain := bodies[0], bodies[1]
+	if string(pinned["regions"]) != `["eu-frankfurt"]` {
+		t.Errorf("regions on the wire = %s, want the configured set", pinned["regions"])
+	}
+	if _, ok := plain["regions"]; ok {
+		t.Errorf("regions must stay off the wire when not configured, got %s", plain["regions"])
+	}
+	for _, body := range bodies {
+		if string(body["alert_confirmations"]) != "3" || string(body["notify_recovery"]) != "false" || string(body["renotify_interval_secs"]) != "0" {
+			t.Errorf("firing policy on the wire = %s %s %s", body["alert_confirmations"], body["notify_recovery"], body["renotify_interval_secs"])
+		}
+		if string(body["alerts"]) != `[{"channel_id":"c1"}]` {
+			t.Errorf("alerts on the wire = %s, want the channel id alone", body["alerts"])
+		}
+		if string(body["region_policy"]) != `"all"` {
+			t.Errorf("region_policy on the wire = %s, want \"all\"", body["region_policy"])
+		}
+	}
+}
+
 func TestDo_DecodesErrorEnvelope(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

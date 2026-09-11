@@ -18,12 +18,22 @@ type Target struct {
 	OwnerUserID *string        `json:"owner_user_id"`
 	CreatedAt   string         `json:"created_at,omitempty"`
 	UpdatedAt   string         `json:"updated_at,omitempty"`
+	FiringPolicy
+}
+
+// FiringPolicy is when a target alerts, one shape on every target body.
+type FiringPolicy struct {
+	AlertConfirmations   uint32        `json:"alert_confirmations"`
+	NotifyRecovery       bool          `json:"notify_recovery"`
+	RenotifyIntervalSecs uint32        `json:"renotify_interval_secs"`
+	RegionPolicy         *RegionPolicy `json:"region_policy,omitempty"`
 }
 
 // NewTarget is the POST /targets body. Enabled has no omitempty: the zero value
 // false must travel, otherwise the server applies its default-true. Tags/Alerts
 // DO use omitempty: a nil slice would marshal to JSON null, which the server's
 // serde-defaulted Vec rejects — omitting the key instead lets the default fire.
+// Regions nil lets the server assign its default set.
 type NewTarget struct {
 	Name        string         `json:"name"`
 	Check       CheckSpec      `json:"check"`
@@ -33,6 +43,8 @@ type NewTarget struct {
 	Alerts      []AlertBinding `json:"alerts,omitempty"`
 	GroupName   *string        `json:"group_name,omitempty"`
 	OwnerUserID *string        `json:"owner_user_id,omitempty"`
+	Regions     []string       `json:"regions,omitempty"`
+	FiringPolicy
 }
 
 // TargetUpdate is the PATCH /targets/{id} body. Terraform always holds the full
@@ -40,7 +52,8 @@ type NewTarget struct {
 // bookkeeping. GroupName / OwnerUserID are pointers so a nil marshals to JSON
 // null, which clears the field server-side (present-null = clear); a value
 // sets it. Tags/Alerts must be non-nil (UpdateTarget normalizes) so an empty
-// slice clears rather than a null being misread as "keep".
+// slice clears rather than a null being misread as "keep". Regions change
+// only through PUT /targets/{id}/regions once created.
 type TargetUpdate struct {
 	Name        string         `json:"name"`
 	Check       CheckSpec      `json:"check"`
@@ -50,23 +63,65 @@ type TargetUpdate struct {
 	Alerts      []AlertBinding `json:"alerts"`
 	GroupName   *string        `json:"group_name"`
 	OwnerUserID *string        `json:"owner_user_id"`
+	FiringPolicy
 }
 
-// TargetRegions is the GET/PUT /targets/{id}/regions body. Regions live on this
-// sub-resource, not on the target itself: POST /targets assigns the operator's
-// default set (up to the plan cap), which need not be every region the fleet
-// serves, and PUT replaces the set wholesale. The server rejects an empty list
-// (>= 1 region required) and unknown/disabled region ids with 422
-// REGION_INVALID.
+// RegionPolicy is how many probe regions must agree before an incident opens.
+// Externally tagged on the wire: "any" | "majority" | "all" | {"count": N}.
+type RegionPolicy struct {
+	Mode  string // any | majority | all | count
+	Count uint32 // when Mode == count
+}
+
+const (
+	RegionPolicyAny      = "any"
+	RegionPolicyMajority = "majority"
+	RegionPolicyAll      = "all"
+	RegionPolicyCount    = "count"
+)
+
+func (p RegionPolicy) MarshalJSON() ([]byte, error) {
+	switch p.Mode {
+	case RegionPolicyAny, RegionPolicyMajority, RegionPolicyAll:
+		return json.Marshal(p.Mode)
+	case RegionPolicyCount:
+		return json.Marshal(struct {
+			Count uint32 `json:"count"`
+		}{p.Count})
+	default:
+		return nil, fmt.Errorf("unsupported region_policy mode %q", p.Mode)
+	}
+}
+
+func (p *RegionPolicy) UnmarshalJSON(data []byte) error {
+	var mode string
+	if err := json.Unmarshal(data, &mode); err == nil {
+		switch mode {
+		case RegionPolicyAny, RegionPolicyMajority, RegionPolicyAll:
+			*p = RegionPolicy{Mode: mode}
+			return nil
+		}
+		return fmt.Errorf("region_policy: unknown mode %q", mode)
+	}
+	var wire struct {
+		Count *uint32 `json:"count"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil || wire.Count == nil {
+		return fmt.Errorf("region_policy: want \"any\", \"majority\", \"all\" or {\"count\": n}, got %s", data)
+	}
+	*p = RegionPolicy{Mode: RegionPolicyCount, Count: *wire.Count}
+	return nil
+}
+
+// TargetRegions is the GET/PUT /targets/{id}/regions body. PUT replaces the
+// set wholesale; an empty list or an unknown/disabled id is 422 REGION_INVALID.
 type TargetRegions struct {
 	Regions []string `json:"regions"`
 }
 
-// AlertBinding ties a notification channel to a target's failure threshold.
+// AlertBinding names a channel; the firing policy is the target's own.
 type AlertBinding struct {
-	ChannelID      string `json:"channel_id"`
-	AfterFailures  uint32 `json:"after_failures"`
-	NotifyRecovery bool   `json:"notify_recovery"`
+	ChannelID string `json:"channel_id"`
 }
 
 // HTTPCheck is the http variant of CheckSpec. basic_auth and bearer_token come

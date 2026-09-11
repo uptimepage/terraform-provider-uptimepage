@@ -41,6 +41,53 @@ func TestExpectedStatus_RoundTrip(t *testing.T) {
 	}
 }
 
+// The unit modes are bare strings; only count is an object.
+func TestRegionPolicy_RoundTrip(t *testing.T) {
+	cases := []struct {
+		val  RegionPolicy
+		wire string
+	}{
+		{RegionPolicy{Mode: RegionPolicyAny}, `"any"`},
+		{RegionPolicy{Mode: RegionPolicyMajority}, `"majority"`},
+		{RegionPolicy{Mode: RegionPolicyAll}, `"all"`},
+		{RegionPolicy{Mode: RegionPolicyCount, Count: 3}, `{"count":3}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.wire, func(t *testing.T) {
+			got, err := json.Marshal(tc.val)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			if string(got) != tc.wire {
+				t.Errorf("marshal = %s, want %s", got, tc.wire)
+			}
+			var back RegionPolicy
+			if err := json.Unmarshal([]byte(tc.wire), &back); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if back != tc.val {
+				t.Errorf("round-trip = %+v, want %+v", back, tc.val)
+			}
+		})
+	}
+	if _, err := json.Marshal(RegionPolicy{Mode: "most"}); err == nil {
+		t.Error("an unknown mode must not reach the wire")
+	}
+	for _, bad := range []string{`"most"`, `null`, `{}`, `{"count":null}`} {
+		var p RegionPolicy
+		if err := json.Unmarshal([]byte(bad), &p); err == nil {
+			t.Errorf("%s must fail at decode, got %+v", bad, p)
+		}
+	}
+	raw, err := json.Marshal(NewTarget{Name: "x", Check: CheckSpec{Type: CheckTypeTCP, TCP: &TCPCheck{Host: "db", Port: 1, Timeout: 1}}})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "region_policy") {
+		t.Errorf("a nil region_policy must marshal as absent: %s", raw)
+	}
+}
+
 // TestNewTarget_EmptyCollectionsNeverNull guards the wire-breaker: nil tags /
 // alerts must be omitted (server's serde default fires on absence, rejects
 // null), and nil headers must marshal as {} (the field is mandatory, rejects

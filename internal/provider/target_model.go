@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-framework/types/basetypes"
 
 	"github.com/uptimepage/terraform-provider-uptimepage/internal/client"
 )
@@ -15,22 +16,29 @@ const redactedSentinel = "***"
 
 // targetModel is the tfsdk view of an uptimepage_target.
 type targetModel struct {
-	ID          types.String `tfsdk:"id"`
-	Name        types.String `tfsdk:"name"`
-	Interval    types.Int64  `tfsdk:"interval"`
-	Enabled     types.Bool   `tfsdk:"enabled"`
-	Tags        types.Set    `tfsdk:"tags"`
-	Regions     types.Set    `tfsdk:"regions"`
-	GroupName   types.String `tfsdk:"group_name"`
-	OwnerUserID types.String `tfsdk:"owner_user_id"`
-	Alerts      []alertModel `tfsdk:"alerts"`
-	Check       checkModel   `tfsdk:"check"`
+	ID                   types.String `tfsdk:"id"`
+	Name                 types.String `tfsdk:"name"`
+	Interval             types.Int64  `tfsdk:"interval"`
+	Enabled              types.Bool   `tfsdk:"enabled"`
+	Tags                 types.Set    `tfsdk:"tags"`
+	Regions              types.Set    `tfsdk:"regions"`
+	GroupName            types.String `tfsdk:"group_name"`
+	OwnerUserID          types.String `tfsdk:"owner_user_id"`
+	Alerts               []alertModel `tfsdk:"alerts"`
+	AlertConfirmations   types.Int64  `tfsdk:"alert_confirmations"`
+	NotifyRecovery       types.Bool   `tfsdk:"notify_recovery"`
+	RenotifyIntervalSecs types.Int64  `tfsdk:"renotify_interval_secs"`
+	RegionPolicy         types.Object `tfsdk:"region_policy"`
+	Check                checkModel   `tfsdk:"check"`
 }
 
 type alertModel struct {
-	ChannelID      types.String `tfsdk:"channel_id"`
-	AfterFailures  types.Int64  `tfsdk:"after_failures"`
-	NotifyRecovery types.Bool   `tfsdk:"notify_recovery"`
+	ChannelID types.String `tfsdk:"channel_id"`
+}
+
+type regionPolicyModel struct {
+	Mode  types.String `tfsdk:"mode"`
+	Count types.Int64  `tfsdk:"count"`
 }
 
 // checkModel is the discriminated check block: Type names the active variant
@@ -148,14 +156,16 @@ func (m targetModel) toNew(ctx context.Context) (client.NewTarget, diag.Diagnost
 	diags.Append(cd...)
 
 	out := client.NewTarget{
-		Name:        m.Name.ValueString(),
-		Check:       check,
-		Interval:    uint64(m.Interval.ValueInt64()),
-		Enabled:     m.Enabled.ValueBool(),
-		Tags:        m.tags(ctx, &diags),
-		Alerts:      m.alerts(),
-		GroupName:   optString(m.GroupName),
-		OwnerUserID: optString(m.OwnerUserID),
+		Name:         m.Name.ValueString(),
+		Check:        check,
+		Interval:     uint64(m.Interval.ValueInt64()),
+		Enabled:      m.Enabled.ValueBool(),
+		Tags:         m.tags(ctx, &diags),
+		Alerts:       m.alerts(),
+		GroupName:    optString(m.GroupName),
+		OwnerUserID:  optString(m.OwnerUserID),
+		Regions:      m.regions(ctx, &diags),
+		FiringPolicy: m.firingPolicy(ctx, &diags),
 	}
 	return out, diags
 }
@@ -166,16 +176,64 @@ func (m targetModel) toUpdate(ctx context.Context) (client.TargetUpdate, diag.Di
 	diags.Append(cd...)
 
 	out := client.TargetUpdate{
-		Name:        m.Name.ValueString(),
-		Check:       check,
-		Interval:    uint64(m.Interval.ValueInt64()),
-		Enabled:     m.Enabled.ValueBool(),
-		Tags:        m.tags(ctx, &diags),
-		Alerts:      m.alerts(),
-		GroupName:   optString(m.GroupName),
-		OwnerUserID: optString(m.OwnerUserID),
+		Name:         m.Name.ValueString(),
+		Check:        check,
+		Interval:     uint64(m.Interval.ValueInt64()),
+		Enabled:      m.Enabled.ValueBool(),
+		Tags:         m.tags(ctx, &diags),
+		Alerts:       m.alerts(),
+		GroupName:    optString(m.GroupName),
+		OwnerUserID:  optString(m.OwnerUserID),
+		FiringPolicy: m.firingPolicy(ctx, &diags),
 	}
 	return out, diags
+}
+
+func (m targetModel) firingPolicy(ctx context.Context, diags *diag.Diagnostics) client.FiringPolicy {
+	return client.FiringPolicy{
+		AlertConfirmations:   uint32(m.AlertConfirmations.ValueInt64()),
+		NotifyRecovery:       m.NotifyRecovery.ValueBool(),
+		RenotifyIntervalSecs: uint32(m.RenotifyIntervalSecs.ValueInt64()),
+		RegionPolicy:         regionPolicyToWire(ctx, m.RegionPolicy, diags),
+	}
+}
+
+// regionPolicyBlock decodes the block when it is known; a null or unknown
+// object (one still being computed elsewhere) is nil.
+func regionPolicyBlock(ctx context.Context, obj types.Object, diags *diag.Diagnostics) *regionPolicyModel {
+	if obj.IsNull() || obj.IsUnknown() {
+		return nil
+	}
+	var p regionPolicyModel
+	diags.Append(obj.As(ctx, &p, basetypes.ObjectAsOptions{})...)
+	return &p
+}
+
+// regionPolicyToWire is nil for an absent block, which leaves the server
+// default in place.
+func regionPolicyToWire(ctx context.Context, obj types.Object, diags *diag.Diagnostics) *client.RegionPolicy {
+	p := regionPolicyBlock(ctx, obj, diags)
+	if p == nil || p.Mode.IsNull() || p.Mode.IsUnknown() {
+		return nil
+	}
+	out := &client.RegionPolicy{Mode: p.Mode.ValueString()}
+	if out.Mode == client.RegionPolicyCount {
+		out.Count = uint32(p.Count.ValueInt64())
+	}
+	return out
+}
+
+func regionPolicyToModel(ctx context.Context, p *client.RegionPolicy, diags *diag.Diagnostics) types.Object {
+	if p == nil {
+		return types.ObjectNull(regionPolicyObjectType.AttrTypes)
+	}
+	m := regionPolicyModel{Mode: types.StringValue(p.Mode), Count: types.Int64Null()}
+	if p.Mode == client.RegionPolicyCount {
+		m.Count = types.Int64Value(int64(p.Count))
+	}
+	obj, d := types.ObjectValueFrom(ctx, regionPolicyObjectType.AttrTypes, m)
+	diags.Append(d...)
+	return obj
 }
 
 func (m targetModel) tags(ctx context.Context, diags *diag.Diagnostics) []string {
@@ -187,10 +245,8 @@ func (m targetModel) tags(ctx context.Context, diags *diag.Diagnostics) []string
 	return tags
 }
 
-// regions extracts the configured region set as a plain slice. Regions are a
-// separate sub-resource (not part of the target create/update body), so this is
-// used by the resource CRUD to PUT the set, not by toNew/toUpdate. A null or
-// unknown set returns nil, meaning "leave the server-assigned set in place".
+// regions is the configured set as a slice; null or unknown is nil, which
+// leaves the server-assigned set in place.
 func (m targetModel) regions(ctx context.Context, diags *diag.Diagnostics) []string {
 	if m.Regions.IsNull() || m.Regions.IsUnknown() {
 		return nil
@@ -211,11 +267,7 @@ func regionsToSet(ctx context.Context, regions []string, diags *diag.Diagnostics
 func (m targetModel) alerts() []client.AlertBinding {
 	out := make([]client.AlertBinding, 0, len(m.Alerts))
 	for _, a := range m.Alerts {
-		out = append(out, client.AlertBinding{
-			ChannelID:      a.ChannelID.ValueString(),
-			AfterFailures:  uint32(a.AfterFailures.ValueInt64()),
-			NotifyRecovery: a.NotifyRecovery.ValueBool(),
-		})
+		out = append(out, client.AlertBinding{ChannelID: a.ChannelID.ValueString()})
 	}
 	return out
 }
@@ -432,14 +484,18 @@ func targetToModel(ctx context.Context, prior targetModel, t *client.Target) (ta
 	diags.Append(d...)
 
 	m := targetModel{
-		ID:          types.StringValue(t.ID),
-		Name:        types.StringValue(t.Name),
-		Interval:    types.Int64Value(int64(t.Interval)),
-		Enabled:     types.BoolValue(t.Enabled),
-		Tags:        tags,
-		GroupName:   fromOptString(t.GroupName),
-		OwnerUserID: fromOptString(t.OwnerUserID),
-		Alerts:      alertsToModel(t.Alerts),
+		ID:                   types.StringValue(t.ID),
+		Name:                 types.StringValue(t.Name),
+		Interval:             types.Int64Value(int64(t.Interval)),
+		Enabled:              types.BoolValue(t.Enabled),
+		Tags:                 tags,
+		GroupName:            fromOptString(t.GroupName),
+		OwnerUserID:          fromOptString(t.OwnerUserID),
+		Alerts:               alertsToModel(t.Alerts),
+		AlertConfirmations:   types.Int64Value(int64(t.AlertConfirmations)),
+		NotifyRecovery:       types.BoolValue(t.NotifyRecovery),
+		RenotifyIntervalSecs: types.Int64Value(int64(t.RenotifyIntervalSecs)),
+		RegionPolicy:         regionPolicyToModel(ctx, t.RegionPolicy, &diags),
 	}
 
 	check, cd := checkToModel(ctx, prior.Check, t.Check)
@@ -453,11 +509,7 @@ func alertsToModel(in []client.AlertBinding) []alertModel {
 	// empty list (nil would map to a null list and diff forever).
 	out := make([]alertModel, 0, len(in))
 	for _, a := range in {
-		out = append(out, alertModel{
-			ChannelID:      types.StringValue(a.ChannelID),
-			AfterFailures:  types.Int64Value(int64(a.AfterFailures)),
-			NotifyRecovery: types.BoolValue(a.NotifyRecovery),
-		})
+		out = append(out, alertModel{ChannelID: types.StringValue(a.ChannelID)})
 	}
 	return out
 }

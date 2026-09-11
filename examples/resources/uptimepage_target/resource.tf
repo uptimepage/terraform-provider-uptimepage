@@ -3,6 +3,11 @@ resource "uptimepage_target" "api" {
   interval = 60
   tags     = ["prod", "api"]
 
+  # Probe from these regions; open an incident once two of them agree.
+  regions             = ["eu-frankfurt", "us-east", "apac-sg"]
+  region_policy       = { mode = "count", count = 2 }
+  alert_confirmations = 3
+
   check = {
     type = "http"
     http = {

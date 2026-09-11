@@ -18,6 +18,11 @@ resource "uptimepage_target" "api" {
   interval = 60
   tags     = ["prod", "api"]
 
+  # Probe from these regions; open an incident once two of them agree.
+  regions             = ["eu-frankfurt", "us-east", "apac-sg"]
+  region_policy       = { mode = "count", count = 2 }
+  alert_confirmations = 3
+
   check = {
     type = "http"
     http = {
@@ -197,11 +202,15 @@ resource "uptimepage_target" "login" {
 
 ### Optional
 
-- `alerts` (Attributes List) Alert bindings to notification channels. (see [below for nested schema](#nestedatt--alerts))
+- `alert_confirmations` (Number) Consecutive failing checks before an incident opens, and passing checks before it closes.
+- `alerts` (Attributes List) Notification channels this target alerts through. When it fires is the target's own alert_confirmations, notify_recovery and renotify_interval_secs. (see [below for nested schema](#nestedatt--alerts))
 - `enabled` (Boolean) Whether the target is actively checked.
 - `group_name` (String) Operator-side grouping label.
+- `notify_recovery` (Boolean) Announce the recovery to the bound channels when the target comes back up.
 - `owner_user_id` (String) Owning user id (UUID).
-- `regions` (Set of String) Regions this target probes from, as operator-defined slugs (e.g. "us-east", "apac-sg"). Omit to accept the server's default set on create, which need not be every region the fleet has (the uptimepage_regions data source lists them all) — that set is read back into state with no perpetual diff. Set it to enforce an exact set; the set is replaced wholesale on change. The server requires at least one region and rejects unknown or disabled ids.
+- `region_policy` (Attributes) How many probe regions must agree the target is down before an incident opens. Majority (the default) suppresses a single location's network blip; a count wider than the regions the target is assigned is clamped to the regions that report. (see [below for nested schema](#nestedatt--region_policy))
+- `regions` (Set of String) Regions this target probes from, as operator-defined slugs (e.g. "us-east", "apac-sg"). Omit to accept the server's default set on create, which need not be every region the fleet has (the uptimepage_regions data source lists them all) — that set is read back into state with no perpetual diff. Set it to enforce an exact set: it travels with the create, so an unknown or disabled id refuses the whole create and no target is left behind, and it is replaced wholesale on change. The server requires at least one region.
+- `renotify_interval_secs` (Number) Seconds before the first reminder while an incident stays unacknowledged; each further reminder waits twice as long, up to a day. 0 turns reminders off; otherwise at least 60.
 - `tags` (Set of String) Free-form tags.
 
 ### Read-Only
@@ -406,12 +415,19 @@ Optional:
 
 Required:
 
-- `after_failures` (Number) Consecutive failed checks before alerting (1..1000000).
 - `channel_id` (String) Notification channel id (UUID).
+
+
+<a id="nestedatt--region_policy"></a>
+### Nested Schema for `region_policy`
+
+Required:
+
+- `mode` (String) One of: any, majority, all, count.
 
 Optional:
 
-- `notify_recovery` (Boolean) Send a recovery notification when the target comes back up.
+- `count` (Number) Regions that must agree when mode = count. The API refuses a count above the region catalog.
 
 ## Import
 

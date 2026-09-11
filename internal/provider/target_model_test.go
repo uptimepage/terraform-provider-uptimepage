@@ -184,6 +184,115 @@ func TestToNew_MapsCoreFields(t *testing.T) {
 	}
 }
 
+func TestToNew_CarriesFiringPolicyAndRegions(t *testing.T) {
+	ctx := context.Background()
+	regions, _ := types.SetValueFrom(ctx, types.StringType, []string{"eu-frankfurt"})
+
+	m := targetModel{
+		Name:                 types.StringValue("api"),
+		Interval:             types.Int64Value(60),
+		Enabled:              types.BoolValue(true),
+		Tags:                 types.SetNull(types.StringType),
+		Regions:              regions,
+		Alerts:               []alertModel{{ChannelID: types.StringValue("c1")}},
+		AlertConfirmations:   types.Int64Value(3),
+		NotifyRecovery:       types.BoolValue(false),
+		RenotifyIntervalSecs: types.Int64Value(0),
+		RegionPolicy:         policyObject(ctx, t, client.RegionPolicyCount, types.Int64Value(2)),
+		Check: checkModel{
+			Type: types.StringValue(client.CheckTypeTCP),
+			TCP:  &tcpCheckModel{Host: types.StringValue("db"), Port: types.Int64Value(5432), TimeoutMs: types.Int64Value(1000)},
+		},
+	}
+	created, d := m.toNew(ctx)
+	if d.HasError() {
+		t.Fatalf("toNew: %v", d)
+	}
+	if created.AlertConfirmations != 3 || created.NotifyRecovery || created.RenotifyIntervalSecs != 0 {
+		t.Errorf("firing policy not mapped on create: %+v", created)
+	}
+	if created.RegionPolicy == nil || *created.RegionPolicy != (client.RegionPolicy{Mode: client.RegionPolicyCount, Count: 2}) {
+		t.Errorf("region_policy = %+v, want count 2", created.RegionPolicy)
+	}
+	if len(created.Alerts) != 1 || created.Alerts[0] != (client.AlertBinding{ChannelID: "c1"}) {
+		t.Errorf("alerts = %+v, want the channel id alone", created.Alerts)
+	}
+	if len(created.Regions) != 1 || created.Regions[0] != "eu-frankfurt" {
+		t.Errorf("regions = %v, want the configured set on the create body", created.Regions)
+	}
+
+	updated, d := m.toUpdate(ctx)
+	if d.HasError() {
+		t.Fatalf("toUpdate: %v", d)
+	}
+	if updated.AlertConfirmations != 3 || updated.NotifyRecovery || updated.RenotifyIntervalSecs != 0 {
+		t.Errorf("firing policy not mapped on update: %+v", updated)
+	}
+
+	m.Regions = types.SetNull(types.StringType)
+	for _, obj := range []types.Object{
+		types.ObjectNull(regionPolicyObjectType.AttrTypes),
+		types.ObjectUnknown(regionPolicyObjectType.AttrTypes),
+	} {
+		m.RegionPolicy = obj
+		created, d = m.toNew(ctx)
+		if d.HasError() {
+			t.Fatalf("toNew: %v", d)
+		}
+		if created.Regions != nil {
+			t.Errorf("omitted regions must stay off the create body, got %v", created.Regions)
+		}
+		if created.RegionPolicy != nil {
+			t.Errorf("an absent region_policy must stay off the body, got %+v", created.RegionPolicy)
+		}
+	}
+}
+
+func policyObject(ctx context.Context, t *testing.T, mode string, count types.Int64) types.Object {
+	t.Helper()
+	obj, d := types.ObjectValueFrom(ctx, regionPolicyObjectType.AttrTypes, regionPolicyModel{
+		Mode:  types.StringValue(mode),
+		Count: count,
+	})
+	if d.HasError() {
+		t.Fatalf("policy object: %v", d)
+	}
+	return obj
+}
+
+func TestTargetToModel_ReadsFiringPolicy(t *testing.T) {
+	ctx := context.Background()
+	got, d := targetToModel(ctx, targetModel{}, &client.Target{
+		ID:       "t1",
+		Name:     "api",
+		Check:    client.CheckSpec{Type: client.CheckTypeTCP, TCP: &client.TCPCheck{Host: "db", Port: 5432, Timeout: 1000}},
+		Interval: 60,
+		Alerts:   []client.AlertBinding{{ChannelID: "c1"}},
+		FiringPolicy: client.FiringPolicy{
+			AlertConfirmations:   4,
+			NotifyRecovery:       true,
+			RenotifyIntervalSecs: 900,
+			RegionPolicy:         &client.RegionPolicy{Mode: client.RegionPolicyAll},
+		},
+	})
+	if d.HasError() {
+		t.Fatalf("targetToModel: %v", d)
+	}
+	if got.AlertConfirmations.ValueInt64() != 4 || !got.NotifyRecovery.ValueBool() || got.RenotifyIntervalSecs.ValueInt64() != 900 {
+		t.Errorf("firing policy not read back: %+v", got)
+	}
+	if !got.RegionPolicy.Equal(policyObject(ctx, t, client.RegionPolicyAll, types.Int64Null())) {
+		t.Errorf("region_policy = %v, want mode all with a null count", got.RegionPolicy)
+	}
+	counted := regionPolicyToModel(ctx, &client.RegionPolicy{Mode: client.RegionPolicyCount, Count: 3}, &d)
+	if !counted.Equal(policyObject(ctx, t, client.RegionPolicyCount, types.Int64Value(3))) {
+		t.Errorf("count mode must carry its number, got %v", counted)
+	}
+	if len(got.Alerts) != 1 || got.Alerts[0].ChannelID.ValueString() != "c1" {
+		t.Errorf("alerts = %+v", got.Alerts)
+	}
+}
+
 func TestRegions_ExtractAndRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	var diags diag.Diagnostics
@@ -823,9 +932,45 @@ func TestEveryAcceptedCheckKindHasASchemaBlock(t *testing.T) {
 	}
 }
 
-// The API 422s the regions PUT for a passive check. Left to apply, the target
-// is created first and only then refused its regions, so the plan has to catch
-// it. The docs claimed regions were merely a no-op here, which was wrong.
+// Checked before the check kind is looked at, so a kind still unknown at plan
+// does not skip it; a wholly unknown block defers to apply rather than failing
+// the config read.
+func TestRegionPolicyCountAtPlanTime(t *testing.T) {
+	ctx := context.Background()
+	obj := func(mode string, count types.Int64) types.Object {
+		return policyObject(ctx, t, mode, count)
+	}
+	for _, c := range []struct {
+		policy  types.Object
+		wantErr bool
+		why     string
+	}{
+		{types.ObjectNull(regionPolicyObjectType.AttrTypes), false, "omitted takes the default"},
+		{types.ObjectUnknown(regionPolicyObjectType.AttrTypes), false, "unknown block defers to apply"},
+		{obj("majority", types.Int64Null()), false, "a unit mode"},
+		{obj("count", types.Int64Value(2)), false, "count with its number"},
+		{obj("count", types.Int64Null()), true, "count without a number"},
+		{obj("any", types.Int64Value(2)), true, "a number on a unit mode"},
+	} {
+		t.Run(c.why, func(t *testing.T) {
+			cfg := targetModel{
+				Name:         types.StringValue("x"),
+				Interval:     types.Int64Value(60),
+				Regions:      types.SetNull(types.StringType),
+				RegionPolicy: c.policy,
+				Check:        checkModel{Type: types.StringUnknown()},
+			}
+			var d diag.Diagnostics
+			validateTargetConfig(ctx, cfg, &d)
+			if got := d.HasError(); got != c.wantErr {
+				t.Errorf("error=%v, want %v (%v)", got, c.wantErr, d)
+			}
+		})
+	}
+}
+
+// A heartbeat is never probed, so the API refuses a create that names regions
+// for one; the plan says so first and points at the attribute.
 func TestHeartbeatRejectsRegionsAtPlanTime(t *testing.T) {
 	set := func(vals ...string) types.Set {
 		elems := make([]attr.Value, len(vals))
@@ -867,7 +1012,7 @@ func TestHeartbeatRejectsRegionsAtPlanTime(t *testing.T) {
 				Regions:  c.regions,
 			}
 			var d diag.Diagnostics
-			validateTargetConfig(cfg, &d)
+			validateTargetConfig(context.Background(), cfg, &d)
 			if got := d.HasError(); got != c.wantErr {
 				t.Errorf("error=%v, want %v (%v)", got, c.wantErr, d)
 			}
