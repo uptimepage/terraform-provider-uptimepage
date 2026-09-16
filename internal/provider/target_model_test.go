@@ -1,7 +1,9 @@
 package provider
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -9,8 +11,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
 	"github.com/uptimepage/terraform-provider-uptimepage/internal/client"
 )
@@ -221,7 +226,7 @@ func TestToNew_CarriesFiringPolicyAndRegions(t *testing.T) {
 		t.Errorf("regions = %v, want the configured set on the create body", created.Regions)
 	}
 
-	updated, d := m.toUpdate(ctx)
+	updated, d := m.toUpdate(ctx, m)
 	if d.HasError() {
 		t.Fatalf("toUpdate: %v", d)
 	}
@@ -1017,5 +1022,131 @@ func TestHeartbeatRejectsRegionsAtPlanTime(t *testing.T) {
 				t.Errorf("error=%v, want %v (%v)", got, c.wantErr, d)
 			}
 		})
+	}
+}
+
+// The server names the token's user as owner when a create omits the field.
+// Optional alone made that a failed apply ("was null, but now ..."); computed
+// with UseStateForUnknown absorbs the default and keeps it across updates.
+func TestOwnerAbsorbsTheServerDefault(t *testing.T) {
+	ctx := context.Background()
+	var resp resource.SchemaResponse
+	(&targetResource{}).Schema(ctx, resource.SchemaRequest{}, &resp)
+	owner := resp.Schema.Attributes["owner_user_id"].(schema.StringAttribute)
+	if !owner.Optional || !owner.Computed {
+		t.Fatalf("owner_user_id must be optional and computed, got optional=%v computed=%v", owner.Optional, owner.Computed)
+	}
+	objType := resp.Schema.Type().TerraformType(ctx).(tftypes.Object)
+	planOwner := func(state tfsdk.State, prior types.String) types.String {
+		req := planmodifier.StringRequest{
+			Path:       path.Root("owner_user_id"),
+			State:      state,
+			StateValue: prior,
+			PlanValue:  types.StringUnknown(),
+		}
+		out := planmodifier.StringResponse{PlanValue: req.PlanValue}
+		for _, m := range owner.PlanModifiers {
+			m.PlanModifyString(ctx, req, &out)
+		}
+		return out.PlanValue
+	}
+	existing := tfsdk.State{Raw: rawWith(objType, "id", tftypes.NewValue(tftypes.String, "t1")), Schema: resp.Schema}
+
+	if got := planOwner(tfsdk.State{Raw: tftypes.NewValue(objType, nil), Schema: resp.Schema}, types.StringNull()); !got.IsUnknown() {
+		t.Errorf("a create leaves the owner to the server, got %v", got)
+	}
+	prior := types.StringValue("6f1a2b3c-0000-4000-8000-000000000001")
+	if got := planOwner(existing, prior); !got.Equal(prior) {
+		t.Errorf("an update that leaves the owner out should keep %v, got %v", prior, got)
+	}
+	if got := planOwner(existing, types.StringNull()); !got.IsNull() {
+		t.Errorf("a target the server left unowned stays null in the plan, got %v", got)
+	}
+}
+
+// An unknown owner must leave the create body: a null would read as "unowned"
+// and skip the server default the schema promises.
+func TestOwnerUnknownIsAbsentFromTheCreateBody(t *testing.T) {
+	ctx := context.Background()
+	m := targetModel{
+		Name:        types.StringValue("db"),
+		Interval:    types.Int64Value(60),
+		Enabled:     types.BoolValue(true),
+		OwnerUserID: types.StringUnknown(),
+		Check: checkModel{
+			Type: types.StringValue(client.CheckTypeTCP),
+			TCP:  &tcpCheckModel{Host: types.StringValue("db"), Port: types.Int64Value(5432), TimeoutMs: types.Int64Value(1000)},
+		},
+	}
+	created, d := m.toNew(ctx)
+	if d.HasError() {
+		t.Fatalf("toNew: %v", d)
+	}
+	raw, err := json.Marshal(created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := body["owner_user_id"]; present {
+		t.Errorf("create body carries owner_user_id: %s", raw)
+	}
+}
+
+// The PATCH body carries the owner only when the config names one; the plan's
+// copy of the state must not be written back.
+func TestOwnerOnUpdateComesFromTheConfig(t *testing.T) {
+	ctx := context.Background()
+	plan := targetModel{
+		Name:        types.StringValue("db"),
+		Interval:    types.Int64Value(60),
+		Enabled:     types.BoolValue(true),
+		OwnerUserID: types.StringValue("6f1a2b3c-0000-4000-8000-000000000001"),
+		Check: checkModel{
+			Type: types.StringValue(client.CheckTypeTCP),
+			TCP:  &tcpCheckModel{Host: types.StringValue("db"), Port: types.Int64Value(5432), TimeoutMs: types.Int64Value(1000)},
+		},
+	}
+	cfg := plan
+	cfg.OwnerUserID = types.StringNull()
+
+	unmanaged, d := plan.toUpdate(ctx, cfg)
+	if d.HasError() {
+		t.Fatalf("toUpdate: %v", d)
+	}
+	raw, _ := json.Marshal(unmanaged)
+	if unmanaged.OwnerUserID != nil || bytes.Contains(raw, []byte("owner_user_id")) {
+		t.Errorf("owner left out of the config still travels on PATCH: %s", raw)
+	}
+
+	managed, d := plan.toUpdate(ctx, plan)
+	if d.HasError() {
+		t.Fatalf("toUpdate: %v", d)
+	}
+	if managed.OwnerUserID == nil || *managed.OwnerUserID != plan.OwnerUserID.ValueString() {
+		t.Errorf("configured owner dropped from PATCH: %+v", managed.OwnerUserID)
+	}
+}
+
+func TestUUIDValidatorRefusesWhatTheAPIWouldRespell(t *testing.T) {
+	for _, c := range []struct {
+		v  string
+		ok bool
+	}{
+		{"6f1a2b3c-0000-4000-8000-000000000001", true},
+		{"6F1A2B3C-0000-4000-8000-000000000001", false},
+		{"6f1a2b3c000040008000000000000001", false},
+		{"not-a-uuid", false},
+	} {
+		r := &validator.StringResponse{}
+		uuidValidator().ValidateString(context.Background(), validator.StringRequest{
+			Path:        path.Root("owner_user_id"),
+			ConfigValue: types.StringValue(c.v),
+		}, r)
+		if r.Diagnostics.HasError() == c.ok {
+			t.Errorf("%q: ok=%v, diagnostics=%v", c.v, c.ok, r.Diagnostics)
+		}
 	}
 }

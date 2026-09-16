@@ -49,11 +49,13 @@ type NewTarget struct {
 
 // TargetUpdate is the PATCH /targets/{id} body. Terraform always holds the full
 // desired state, so every field is sent on every update — no partial-patch
-// bookkeeping. GroupName / OwnerUserID are pointers so a nil marshals to JSON
-// null, which clears the field server-side (present-null = clear); a value
-// sets it. Tags/Alerts must be non-nil (UpdateTarget normalizes) so an empty
-// slice clears rather than a null being misread as "keep". Regions change
-// only through PUT /targets/{id}/regions once created.
+// bookkeeping. GroupName is a pointer so a nil marshals to JSON null, which
+// clears the field server-side (present-null = clear); a value sets it.
+// OwnerUserID is the one exception: the config either names an owner or leaves
+// ownership to the server, so a nil is omitted rather than sent as null.
+// Tags/Alerts must be non-nil (UpdateTarget normalizes) so an empty slice
+// clears rather than a null being misread as "keep". Regions change only
+// through PUT /targets/{id}/regions once created.
 type TargetUpdate struct {
 	Name        string         `json:"name"`
 	Check       CheckSpec      `json:"check"`
@@ -62,7 +64,7 @@ type TargetUpdate struct {
 	Tags        []string       `json:"tags"`
 	Alerts      []AlertBinding `json:"alerts"`
 	GroupName   *string        `json:"group_name"`
-	OwnerUserID *string        `json:"owner_user_id"`
+	OwnerUserID *string        `json:"owner_user_id,omitempty"`
 	FiringPolicy
 }
 

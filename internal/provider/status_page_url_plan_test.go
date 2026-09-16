@@ -16,12 +16,7 @@ import (
 // attribute is null, which the modifier never reads.
 func statusPageRaw(t *testing.T, objType tftypes.Object, slug string) tftypes.Value {
 	t.Helper()
-	attrs := map[string]tftypes.Value{}
-	for name, typ := range objType.AttributeTypes {
-		attrs[name] = tftypes.NewValue(typ, nil)
-	}
-	attrs["slug"] = tftypes.NewValue(tftypes.String, slug)
-	return tftypes.NewValue(objType, attrs)
+	return rawWith(objType, "slug", tftypes.NewValue(tftypes.String, slug))
 }
 
 // planStatusURL runs the modifier over an unknown status_url. An empty

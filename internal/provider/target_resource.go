@@ -118,8 +118,11 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Description: "Operator-side grouping label.",
 			},
 			"owner_user_id": schema.StringAttribute{
-				Optional:    true,
-				Description: "Owning user id (UUID).",
+				Optional:      true,
+				Computed:      true,
+				Description:   "Owning member's user id (lowercase UUID). Omit it and the server makes the token's user the owner on create; removing it later keeps the owner the target has, it does not clear it.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+				Validators:    []validator.String{uuidValidator()},
 			},
 			"alerts": schema.ListNestedAttribute{
 				Optional:    true,
@@ -130,7 +133,8 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 					Attributes: map[string]schema.Attribute{
 						"channel_id": schema.StringAttribute{
 							Required:    true,
-							Description: "Notification channel id (UUID).",
+							Description: "Notification channel id (lowercase UUID).",
+							Validators:  []validator.String{uuidValidator()},
 						},
 					},
 				},
@@ -661,7 +665,7 @@ func (r *targetResource) Update(ctx context.Context, req resource.UpdateRequest,
 	}
 	graftWriteOnlySecrets(&plan, cfg)
 
-	in, d := plan.toUpdate(ctx)
+	in, d := plan.toUpdate(ctx, cfg)
 	resp.Diagnostics.Append(d...)
 	if resp.Diagnostics.HasError() {
 		return

@@ -170,7 +170,11 @@ func (m targetModel) toNew(ctx context.Context) (client.NewTarget, diag.Diagnost
 	return out, diags
 }
 
-func (m targetModel) toUpdate(ctx context.Context) (client.TargetUpdate, diag.Diagnostics) {
+// toUpdate builds the PATCH body from the plan. The owner rides along only when
+// the config names one: with the attribute left out, the plan carries the
+// state's value, and writing that back would revert an owner changed in the app
+// or fail once that member has left the org.
+func (m targetModel) toUpdate(ctx context.Context, cfg targetModel) (client.TargetUpdate, diag.Diagnostics) {
 	var diags diag.Diagnostics
 	check, cd := m.Check.toWire(ctx)
 	diags.Append(cd...)
@@ -183,7 +187,7 @@ func (m targetModel) toUpdate(ctx context.Context) (client.TargetUpdate, diag.Di
 		Tags:         m.tags(ctx, &diags),
 		Alerts:       m.alerts(),
 		GroupName:    optString(m.GroupName),
-		OwnerUserID:  optString(m.OwnerUserID),
+		OwnerUserID:  optString(cfg.OwnerUserID),
 		FiringPolicy: m.firingPolicy(ctx, &diags),
 	}
 	return out, diags
