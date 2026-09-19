@@ -186,9 +186,10 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Description: "Check definition. Set `type` and the matching nested block.",
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
-						Required:    true,
-						Description: "Check type: " + strings.Join(checkKinds(), ", ") + ".",
-						Validators:  []validator.String{stringvalidator.OneOf(checkKinds()...)},
+						Required:      true,
+						Description:   "Check type: " + strings.Join(checkKinds(), ", ") + ". Fixed after creation: changing it replaces the monitor with a new one, which gets a new id, an empty history and, for a heartbeat, a new ping URL.",
+						Validators:    []validator.String{stringvalidator.OneOf(checkKinds()...)},
+						PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 					},
 					"http": schema.SingleNestedAttribute{
 						Optional:    true,

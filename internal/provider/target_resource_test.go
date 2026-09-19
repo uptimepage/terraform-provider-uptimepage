@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 )
 
@@ -37,6 +38,23 @@ resource "uptimepage_target" "t" {
       url    = "https://example.com/healthz"
       method = "GET"
       expected_status = { kind = "exact", exact = 200 }
+    }
+  }
+}
+`
+
+// testAccTargetBasic with its check swapped to another kind. The API keeps a
+// monitor's type fixed, so this must plan as a replacement.
+const testAccTargetSwapped = `
+resource "uptimepage_target" "t" {
+  name     = "acc-http"
+  interval = 60
+  tags     = ["acc"]
+  check = {
+    type = "tcp"
+    tcp = {
+      host = "example.com"
+      port = 443
     }
   }
 }
@@ -144,7 +162,8 @@ func TestAccTargetResource_regions(t *testing.T) {
 }
 
 // TestAccTargetResource_basic is the make-or-break check: create, then confirm
-// the immediate re-plan is empty (no perpetual diff), then round-trip import.
+// the immediate re-plan is empty (no perpetual diff), round-trip import, then
+// swap the check type and see the whole resource replaced rather than patched.
 func TestAccTargetResource_basic(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
@@ -163,6 +182,15 @@ func TestAccTargetResource_basic(t *testing.T) {
 				ImportState:             true,
 				ImportStateVerify:       true,
 				ImportStateVerifyIgnore: []string{"check.basic_auth", "check.bearer_token"},
+			},
+			{
+				Config: testAccTargetSwapped,
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction("uptimepage_target.t", plancheck.ResourceActionReplace),
+					},
+				},
+				Check: resource.TestCheckResourceAttr("uptimepage_target.t", "check.type", "tcp"),
 			},
 		},
 	})

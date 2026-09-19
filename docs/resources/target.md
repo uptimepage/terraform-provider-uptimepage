@@ -222,7 +222,7 @@ resource "uptimepage_target" "login" {
 
 Required:
 
-- `type` (String) Check type: http, tcp, ping, heartbeat, tls_cert, domain_expiry, dns, flow.
+- `type` (String) Check type: http, tcp, ping, heartbeat, tls_cert, domain_expiry, dns, flow. Fixed after creation: changing it replaces the monitor with a new one, which gets a new id, an empty history and, for a heartbeat, a new ping URL.
 
 Optional:
 

@@ -1,11 +1,9 @@
 package provider
 
 import (
-	"context"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
-	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -19,31 +17,22 @@ func statusPageRaw(t *testing.T, objType tftypes.Object, slug string) tftypes.Va
 	return rawWith(objType, "slug", tftypes.NewValue(tftypes.String, slug))
 }
 
-// planStatusURL runs the modifier over an unknown status_url. An empty
+// planStatusURL runs status_url's modifiers over an unknown value. An empty
 // stateSlug stands for a create, where there is no prior state at all.
 func planStatusURL(t *testing.T, stateSlug, planSlug string, priorURL types.String) planmodifier.StringResponse {
 	t.Helper()
-	ctx := context.Background()
+	sch, objType := resourceSchema(t, &statusPageResource{})
 
-	var sresp resource.SchemaResponse
-	(&statusPageResource{}).Schema(ctx, resource.SchemaRequest{}, &sresp)
-	objType := sresp.Schema.Type().TerraformType(ctx).(tftypes.Object)
-
-	state := tfsdk.State{Raw: tftypes.NewValue(objType, nil), Schema: sresp.Schema}
+	stateRaw := tftypes.NewValue(objType, nil)
 	if stateSlug != "" {
-		state.Raw = statusPageRaw(t, objType, stateSlug)
+		stateRaw = statusPageRaw(t, objType, stateSlug)
 	}
-
-	req := planmodifier.StringRequest{
-		Path:       path.Root("status_url"),
-		State:      state,
-		Plan:       tfsdk.Plan{Raw: statusPageRaw(t, objType, planSlug), Schema: sresp.Schema},
+	return planString(t, sch, path.Root("status_url"), planmodifier.StringRequest{
+		State:      tfsdk.State{Raw: stateRaw},
+		Plan:       tfsdk.Plan{Raw: statusPageRaw(t, objType, planSlug)},
 		StateValue: priorURL,
 		PlanValue:  types.StringUnknown(),
-	}
-	resp := planmodifier.StringResponse{PlanValue: req.PlanValue}
-	keepWhileSlugUnchanged().PlanModifyString(ctx, req, &resp)
-	return resp
+	})
 }
 
 func TestSlugDerivedURLHoldsValueWhileSlugUnchanged(t *testing.T) {
