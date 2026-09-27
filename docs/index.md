@@ -9,7 +9,7 @@ description: |-
 
 Manage Uptimepage monitors, status pages, status page components and notification channels as code. Monitors cover HTTP, TCP, ICMP ping, inbound cron heartbeats, DNS, TLS certificate expiry, domain expiry and scripted browser login flows. Every resource supports import, and the provider works against the hosted service or a self-hosted instance.
 
-Use the provider with [Uptimepage's hosted uptime monitoring and status page service](https://uptimepage.dev/terraform-uptime-monitoring), or point the same configuration at a self-hosted instance. The [Terraform setup guide](https://uptimepage.dev/docs/terraform) covers API tokens, organization scope, imports, and the hosted-service workflow.
+Use the provider with [Uptimepage's hosted uptime monitoring, status page and on-call service](https://uptimepage.dev/terraform-uptime-monitoring), or point the same configuration at a self-hosted instance. The [Terraform setup guide](https://uptimepage.dev/docs/terraform) covers API tokens, organization scope, imports, and the hosted-service workflow.
 
 ## Example Usage
 
@@ -53,6 +53,8 @@ Three data sources read what Terraform does not own: `uptimepage_target` for a
 monitor created elsewhere, `uptimepage_heartbeat` for the URL a heartbeat job
 reports to, and `uptimepage_regions` for the probe regions the instance serves,
 which is where a monitor's `regions` ids come from.
+
+On-call schedules and escalation policies are managed in the app or over the REST API, not by this provider. While an escalation policy applies to a monitor, its own or the organization default, the policy pages its levels instead of the monitor's own channels (its `alerts`, plus channels routed to it by tag). Those channels still receive monitoring-stopped notices. To keep a monitor's routing under an organization default, bind the monitor directly to a policy whose first level pages those channels. A policy bound to a monitor stays bound when Terraform updates the monitor in place, and is dropped when a new `check.type` replaces the monitor, so bind the new one again.
 
 ## Check types
 
@@ -134,8 +136,8 @@ configuration.
 Authentication uses an API token, passed as `token` or `UPTIMEPAGE_TOKEN`. Grant
 it the least scope the run needs: `targets:write` and `channels:write` cover
 monitors and channels, `status_page:write` covers pages and their components,
-and `write` implies `read`. Add the `:delete` scopes only if you run
-`terraform destroy`. Status-page writes are owner-only. Binding a token to one
+and `write` implies `read`. Add the `:delete` scopes if you run
+`terraform destroy` or change a monitor's `check.type`, which replaces it. Status-page writes are owner-only. Binding a token to one
 organization keeps a leaked token away from your others, and `org` must then
 match it.
 

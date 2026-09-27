@@ -128,7 +128,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Optional:    true,
 				Computed:    true,
 				Default:     listdefault.StaticValue(types.ListValueMust(alertObjectType, []attr.Value{})),
-				Description: "Notification channels this target alerts through. When it fires is the target's own alert_confirmations, notify_recovery and renotify_interval_secs.",
+				Description: "Notification channels this target alerts through. When it fires is the target's own alert_confirmations, notify_recovery and renotify_interval_secs. While an escalation policy applies (one bound to this monitor in the app or over the API, or the organization default), the policy pages its levels instead of these channels; these channels still receive monitoring-stopped notices.",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"channel_id": schema.StringAttribute{
@@ -150,13 +150,13 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Optional:    true,
 				Computed:    true,
 				Default:     booldefault.StaticBool(true),
-				Description: "Announce the recovery to the bound channels when the target comes back up.",
+				Description: "Announce the recovery to the channels that were paged when the target comes back up.",
 			},
 			"renotify_interval_secs": schema.Int64Attribute{
 				Optional:    true,
 				Computed:    true,
 				Default:     int64default.StaticInt64(3600),
-				Description: "Seconds before the first reminder while an incident stays unacknowledged; each further reminder waits twice as long, up to a day. 0 turns reminders off; otherwise at least 60.",
+				Description: "Seconds before the first reminder while an incident stays unacknowledged; each further reminder waits twice as long, up to a day. Under an escalation policy the reminders start once the policy's last page is sent. 0 turns reminders off; otherwise at least 60.",
 				Validators:  []validator.Int64{int64validator.Any(int64validator.OneOf(0), int64validator.Between(60, math.MaxUint32))},
 			},
 			"region_policy": schema.SingleNestedAttribute{
