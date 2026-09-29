@@ -25,11 +25,16 @@ const (
 	ChannelTypePushover   = "pushover"
 	ChannelTypeWhatsApp   = "whatsapp"
 	ChannelTypeSMS        = "sms"
-
-	// Created only by the dashboard's one-tap Telegram linking; the API
-	// rejects it in request bodies, so the provider cannot manage it.
-	channelTypeTelegramApp = "telegram_app"
 )
+
+// Kinds only a link flow creates, each named by its flow; the API rejects them
+// in request bodies, so the provider cannot manage them.
+var linkedChannelTypes = map[string]string{
+	"telegram_app": "linked through the Telegram bot",
+	"whatsapp_app": "linked through the WhatsApp line",
+	"slack_app":    "connected through Add to Slack",
+	"discord_app":  "connected through Add to Discord",
+}
 
 // NotificationChannel is the read shape. Kind is derived server-side from the
 // config type. Secret-bearing config fields come back as "***".
@@ -362,9 +367,10 @@ func (c *ChannelConfig) UnmarshalJSON(data []byte) error {
 	case ChannelTypeSMS:
 		c.SMS = new(SMSConfig)
 		return json.Unmarshal(data, c.SMS)
-	case channelTypeTelegramApp:
-		return fmt.Errorf("channel type %q is linked through the dashboard's Telegram bot and cannot be managed by Terraform", probe.Type)
 	default:
+		if how, ok := linkedChannelTypes[probe.Type]; ok {
+			return fmt.Errorf("channel type %q is %s and cannot be managed by Terraform", probe.Type, how)
+		}
 		return fmt.Errorf("unsupported channel type %q", probe.Type)
 	}
 }

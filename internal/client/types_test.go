@@ -362,14 +362,21 @@ func TestCheckSpec_HTTPInternallyTagged(t *testing.T) {
 	}
 }
 
-func TestChannelConfig_TelegramAppIsManaged(t *testing.T) {
-	var c ChannelConfig
-	err := json.Unmarshal([]byte(`{"type":"telegram_app","chat_id":"-100123"}`), &c)
-	if err == nil {
-		t.Fatal("telegram_app must not unmarshal into a manageable config")
-	}
-	if !strings.Contains(err.Error(), "cannot be managed by Terraform") {
-		t.Fatalf("error should explain the managed kind, got: %v", err)
+func TestChannelConfig_LinkedKindsAreNotManageable(t *testing.T) {
+	for _, tc := range []struct{ kind, body, want string }{
+		{"telegram_app", `{"type":"telegram_app","chat_id":"-100123"}`, "Telegram bot and cannot be managed by Terraform"},
+		{"whatsapp_app", `{"type":"whatsapp_app","phone":"380501234567"}`, "WhatsApp line and cannot be managed by Terraform"},
+		{"slack_app", `{"type":"slack_app","webhook_url":"***","channel":"#ops","channel_id":"C0123456789"}`, "Add to Slack and cannot be managed by Terraform"},
+		{"discord_app", `{"type":"discord_app","webhook_url":"***","webhook_id":"112233445566778899"}`, "Add to Discord and cannot be managed by Terraform"},
+		{"unknown", `{"type":"carrier_pigeon"}`, `unsupported channel type "carrier_pigeon"`},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			var c ChannelConfig
+			err := json.Unmarshal([]byte(tc.body), &c)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want an error containing %q, got: %v", tc.want, err)
+			}
+		})
 	}
 }
 

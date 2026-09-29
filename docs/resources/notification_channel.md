@@ -215,7 +215,7 @@ resource "uptimepage_target" "api" {
 
 Required:
 
-- `type` (String) Channel type: webhook, slack, telegram, discord, msteams, google_chat, mattermost, email, pagerduty, ntfy, gotify, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.
+- `type` (String) Channel type: webhook, slack, telegram, discord, msteams, google_chat, mattermost, email, pagerduty, ntfy, gotify, pushover, whatsapp, sms. The linked telegram_app, whatsapp_app, slack_app and discord_app kinds are not manageable here, though a target's alerts can still name them by id.
 
 Optional:
 

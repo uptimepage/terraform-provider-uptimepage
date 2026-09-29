@@ -110,7 +110,7 @@ func (r *channelResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:    true,
-						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, mattermost, email, pagerduty, ntfy, gotify, pushover, whatsapp, sms. The dashboard's one-tap telegram_app kind is not manageable here.",
+						Description: "Channel type: webhook, slack, telegram, discord, msteams, google_chat, mattermost, email, pagerduty, ntfy, gotify, pushover, whatsapp, sms. The linked telegram_app, whatsapp_app, slack_app and discord_app kinds are not manageable here, though a target's alerts can still name them by id.",
 						Validators: []validator.String{stringvalidator.OneOf(
 							client.ChannelTypeWebhook, client.ChannelTypeSlack, client.ChannelTypeTelegram,
 							client.ChannelTypeDiscord, client.ChannelTypeMsTeams, client.ChannelTypeGoogleChat,
