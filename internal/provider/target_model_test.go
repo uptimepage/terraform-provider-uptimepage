@@ -926,6 +926,9 @@ func TestEveryAcceptedCheckKindHasASchemaBlock(t *testing.T) {
 	(&targetResource{}).Schema(context.Background(), resource.SchemaRequest{}, &resp)
 	check := resp.Schema.Attributes["check"].(schema.SingleNestedAttribute)
 	for _, kind := range checkKinds() {
+		if kind == client.CheckTypeManual {
+			continue // the one kind with nothing to configure
+		}
 		attr, ok := check.Attributes[kind]
 		if !ok {
 			t.Errorf("check kind %q is accepted by the type validator but has no %q block", kind, kind)
@@ -969,6 +972,82 @@ func TestRegionPolicyCountAtPlanTime(t *testing.T) {
 			validateTargetConfig(ctx, cfg, &d)
 			if got := d.HasError(); got != c.wantErr {
 				t.Errorf("error=%v, want %v (%v)", got, c.wantErr, d)
+			}
+		})
+	}
+}
+
+// A manual monitor has no block, and the wire carries its type alone.
+func TestManualToWireAndBack(t *testing.T) {
+	ctx := context.Background()
+	spec, diags := checkModel{Type: types.StringValue(client.CheckTypeManual)}.toWire(ctx)
+	if diags.HasError() {
+		t.Fatalf("toWire: %v", diags)
+	}
+	raw, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(raw) != `{"type":"manual"}` {
+		t.Errorf("wire = %s", raw)
+	}
+	back, d := checkToModel(ctx, checkModel{}, spec)
+	if d.HasError() {
+		t.Fatalf("checkToModel: %v", d)
+	}
+	if back.Type.ValueString() != client.CheckTypeManual {
+		t.Errorf("type = %v", back.Type)
+	}
+	for kind, set := range checkBlocksPresent(back) {
+		if set && kind != client.CheckTypeManual {
+			t.Errorf("block %q set on the way back", kind)
+		}
+	}
+}
+
+// The API pins a manual monitor to interval 60 and one confirmation, and
+// refuses regions on it; the plan says so before anything is created.
+func TestValidateManualConfig(t *testing.T) {
+	manual := checkModel{Type: types.StringValue(client.CheckTypeManual)}
+	ok := targetModel{
+		Name:               types.StringValue("SIP trunks"),
+		Interval:           types.Int64Value(60),
+		AlertConfirmations: types.Int64Value(1),
+		Regions:            types.SetNull(types.StringType),
+		Check:              manual,
+	}
+	for _, c := range []struct {
+		edit    func(*targetModel)
+		wantErr string
+		why     string
+	}{
+		{func(*targetModel) {}, "", "interval 60 and one confirmation"},
+		{func(m *targetModel) { m.AlertConfirmations = types.Int64Null() }, "", "count left out, planned as 1"},
+		{func(m *targetModel) { m.Interval = types.Int64Value(300) }, "interval", "another interval"},
+		{func(m *targetModel) { m.AlertConfirmations = types.Int64Value(2) }, "alert_confirmations", "another count"},
+		{func(m *targetModel) {
+			m.Regions = types.SetValueMust(types.StringType, []attr.Value{types.StringValue("eu-helsinki")})
+		}, "regions", "regions"},
+		{func(m *targetModel) {
+			m.Check.TCP = &tcpCheckModel{Host: types.StringValue("db"), Port: types.Int64Value(5432), TimeoutMs: types.Int64Value(3000)}
+		}, "check.tcp", "a block of another kind"},
+	} {
+		t.Run(c.why, func(t *testing.T) {
+			cfg := ok
+			c.edit(&cfg)
+			var d diag.Diagnostics
+			validateTargetConfig(context.Background(), cfg, &d)
+			if c.wantErr == "" {
+				if d.HasError() {
+					t.Errorf("unexpected error: %v", d)
+				}
+				return
+			}
+			if d.ErrorsCount() != 1 {
+				t.Fatalf("want one error at %s, got %v", c.wantErr, d)
+			}
+			if p := d.Errors()[0].(diag.DiagnosticWithPath).Path().String(); p != c.wantErr {
+				t.Errorf("error at %s, want %s", p, c.wantErr)
 			}
 		})
 	}

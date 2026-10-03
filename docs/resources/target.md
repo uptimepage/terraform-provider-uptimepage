@@ -101,6 +101,18 @@ resource "uptimepage_target" "nightly_backup" {
   }
 }
 
+# Manual monitor. Nothing probes it: an operator sets it to up, degraded or down
+# in the app, over the API or through MCP, and that state is not part of this
+# config. The API pins the interval to 60 and the confirmation count to 1.
+resource "uptimepage_target" "sip_trunks" {
+  name     = "SIP trunks"
+  interval = 60
+
+  check = {
+    type = "manual"
+  }
+}
+
 # ICMP echo check. Reaches a host that answers no TCP port at all, such as a
 # bare VM or an appliance. The host has to be publicly routable: the SSRF guard
 # refuses loopback, private and link-local addresses unless the instance sets
@@ -196,20 +208,20 @@ resource "uptimepage_target" "login" {
 
 ### Required
 
-- `check` (Attributes) Check definition. Set `type` and the matching nested block. (see [below for nested schema](#nestedatt--check))
-- `interval` (Number) Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side: domain_expiry rejects anything under 43200 because RDAP rate-limits by source address, tls_cert under 3600, flow under 300, heartbeat under 60. Expiry checks watch state that moves in days, so 43200 for tls_cert and 86400 for domain_expiry are the usual cadences.
+- `check` (Attributes) Check definition. Set `type` and the matching nested block; `manual` has none. (see [below for nested schema](#nestedatt--check))
+- `interval` (Number) Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side: domain_expiry rejects anything under 43200 because RDAP rate-limits by source address, tls_cert under 3600, flow under 300, heartbeat under 60, and manual takes exactly 60. Expiry checks watch state that moves in days, so 43200 for tls_cert and 86400 for domain_expiry are the usual cadences.
 - `name` (String) Human-readable target name.
 
 ### Optional
 
-- `alert_confirmations` (Number) Consecutive failing checks before an incident opens, and passing checks before it closes.
+- `alert_confirmations` (Number) Consecutive failing checks before an incident opens, and passing checks before it closes. A manual monitor takes exactly 1, which is planned when this is left out.
 - `alerts` (Attributes List) Notification channels this target alerts through. When it fires is the target's own alert_confirmations, notify_recovery and renotify_interval_secs. While an escalation policy applies (one bound to this monitor in the app or over the API, or the organization default), the policy pages its levels instead of these channels; these channels still receive monitoring-stopped notices. (see [below for nested schema](#nestedatt--alerts))
 - `enabled` (Boolean) Whether the target is actively checked.
 - `group_name` (String) Operator-side grouping label.
 - `notify_recovery` (Boolean) Announce the recovery to the channels that were paged when the target comes back up.
 - `owner_user_id` (String) Owning member's user id (lowercase UUID). Omit it and the server makes the token's user the owner on create; removing it later keeps the owner the target has, it does not clear it.
 - `region_policy` (Attributes) How many probe regions must agree the target is down before an incident opens. Majority (the default) suppresses a single location's network blip; a count wider than the regions the target is assigned is clamped to the regions that report. (see [below for nested schema](#nestedatt--region_policy))
-- `regions` (Set of String) Regions this target probes from, as operator-defined slugs (e.g. "us-east", "apac-sg"). Omit to accept the server's default set on create, which need not be every region the fleet has (the uptimepage_regions data source lists them all) — that set is read back into state with no perpetual diff. Set it to enforce an exact set: it travels with the create, so an unknown or disabled id refuses the whole create and no target is left behind, and it is replaced wholesale on change. The server requires at least one region.
+- `regions` (Set of String) Regions this target probes from, as operator-defined slugs (e.g. "us-east", "apac-sg"). Omit to accept the server's default set on create, which need not be every region the fleet has (the uptimepage_regions data source lists them all) — that set is read back into state with no perpetual diff. Set it to enforce an exact set: it travels with the create, so an unknown or disabled id refuses the whole create and no target is left behind, and it is replaced wholesale on change. The server requires at least one region. Heartbeat and manual monitors are not probed and refuse it.
 - `renotify_interval_secs` (Number) Seconds before the first reminder while an incident stays unacknowledged; each further reminder waits twice as long, up to a day. Under an escalation policy the reminders start once the policy's last page is sent. 0 turns reminders off; otherwise at least 60.
 - `tags` (Set of String) Free-form tags.
 
@@ -222,7 +234,7 @@ resource "uptimepage_target" "login" {
 
 Required:
 
-- `type` (String) Check type: http, tcp, ping, heartbeat, tls_cert, domain_expiry, dns, flow. Fixed after creation: changing it replaces the monitor with a new one, which gets a new id, an empty history and, for a heartbeat, a new ping URL.
+- `type` (String) Check type: http, tcp, ping, heartbeat, tls_cert, domain_expiry, dns, flow, manual. Fixed after creation: changing it replaces the monitor with a new one, which gets a new id, an empty history and, for a heartbeat, a new ping URL.
 
 Optional:
 

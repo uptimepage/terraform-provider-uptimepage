@@ -39,8 +39,8 @@ On-call schedules and escalation policies are managed in the app or over the RES
 
 ## Check types
 
-A target sets `check.type` to one of eight values, then fills the matching
-nested block:
+A target sets `check.type` to one of nine values, then fills the matching
+nested block, which `manual` does not have:
 
 | `check.type` | What it verifies |
 |--------------|------------------|
@@ -52,10 +52,10 @@ nested block:
 | `tls_cert` | Days remaining on a TLS certificate, before it expires. |
 | `domain_expiry` | Days remaining on a domain registration, read over RDAP. |
 | `flow` | A scripted browser journey, such as a real sign-in, in a headless browser. |
+| `manual` | Nothing at all. Its state is up, degraded or down, whichever someone last set in the app, the API or MCP. |
 
-A heartbeat is the one kind nothing is sent to, so its ping URL is what the
-job needs and it is not part of the target. Read it with the
-`uptimepage_heartbeat` data source. That URL is a capability, not just an
+A heartbeat's ping URL is what the job needs, and it is not part of the
+target. Read it with the `uptimepage_heartbeat` data source. That URL is a capability, not just an
 address: whoever holds it can report the job healthy or failed, so treat it
 like a credential.
 
@@ -67,6 +67,17 @@ server-side and reads back into state, which is expected and not drift.
 the job runs. It has to be no coarser than `period_ms + grace_ms`, or the
 deadline can pass unseen, and no finer than 60 seconds, which is how often
 evaluation runs.
+
+A manual monitor is for a service only the people running it can judge, such
+as a SIP trunk or a carrier interconnect. `check` is `type = "manual"` and
+nothing else. Its state is not configuration, so Terraform neither sets nor
+reads it: an operator sets it in the app, with `PUT /api/v1/targets/{id}/state`,
+or through MCP, and the next plan shows no drift. The API pins `interval = 60`,
+since the state is restated once a minute, and `alert_confirmations = 1`, since
+setting the state is the confirmation. Leave `alert_confirmations` out and the
+provider plans 1; any other value is refused at plan time. Like a heartbeat, it
+refuses `regions`, and the region row seeded server-side reads back into state
+without drift.
 
 Hosts and domains are stored in the form the API canonicalises them to:
 lowercase, no trailing dot, punycode rather than unicode, and an IPv6 literal

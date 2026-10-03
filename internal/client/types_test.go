@@ -151,6 +151,7 @@ func TestCheckSpec_VariantsRoundTrip(t *testing.T) {
 			},
 			Timeout: 30000, StepTimeout: 5000, VerifyTLS: true,
 		}}, []string{"type", "start_url", "steps", "timeout", "step_timeout", "verify_tls"}},
+		"manual": {CheckSpec{Type: CheckTypeManual}, []string{"type"}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

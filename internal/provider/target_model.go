@@ -357,6 +357,7 @@ func (c checkModel) toWire(ctx context.Context) (client.CheckSpec, diag.Diagnost
 			return out, missingBlock(kind)
 		}
 		out.Flow, diags = c.Flow.toWire()
+	case client.CheckTypeManual:
 	default:
 		diags.AddError("Invalid check", fmt.Sprintf("unsupported check type %q", kind))
 	}
@@ -571,6 +572,7 @@ func checkToModel(ctx context.Context, prior checkModel, spec client.CheckSpec) 
 		}
 	case spec.Flow != nil:
 		out.Flow = flowToModel(prior.Flow, spec.Flow)
+	case spec.Type == client.CheckTypeManual:
 	default:
 		diags.AddError("Unsupported check type", fmt.Sprintf("check type %q has no payload", spec.Type))
 	}

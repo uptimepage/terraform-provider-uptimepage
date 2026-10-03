@@ -310,6 +310,9 @@ const (
 	CheckTypeDomainExpiry = "domain_expiry"
 	CheckTypeDNS          = "dns"
 	CheckTypeFlow         = "flow"
+	// CheckTypeManual has no payload: its state is whatever an operator last
+	// set, which is not configuration.
+	CheckTypeManual = "manual"
 )
 
 func (c CheckSpec) MarshalJSON() ([]byte, error) {
@@ -388,6 +391,10 @@ func (c CheckSpec) MarshalJSON() ([]byte, error) {
 			Type string `json:"type"`
 			FlowCheck
 		}{c.Type, f})
+	case CheckTypeManual:
+		return json.Marshal(struct {
+			Type string `json:"type"`
+		}{c.Type})
 	case "":
 		return nil, fmt.Errorf("check has no type")
 	default:
@@ -433,6 +440,8 @@ func (c *CheckSpec) UnmarshalJSON(data []byte) error {
 	case CheckTypeFlow:
 		c.Flow = new(FlowCheck)
 		return json.Unmarshal(data, c.Flow)
+	case CheckTypeManual:
+		return nil
 	default:
 		return fmt.Errorf("unsupported check type %q", probe.Type)
 	}

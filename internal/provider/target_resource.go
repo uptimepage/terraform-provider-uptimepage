@@ -82,7 +82,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"interval": schema.Int64Attribute{
 				Required:    true,
-				Description: "Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side: domain_expiry rejects anything under 43200 because RDAP rate-limits by source address, tls_cert under 3600, flow under 300, heartbeat under 60. Expiry checks watch state that moves in days, so 43200 for tls_cert and 86400 for domain_expiry are the usual cadences.",
+				Description: "Check interval in seconds. The effective minimum is plan- and kind-dependent and enforced server-side: domain_expiry rejects anything under 43200 because RDAP rate-limits by source address, tls_cert under 3600, flow under 300, heartbeat under 60, and manual takes exactly 60. Expiry checks watch state that moves in days, so 43200 for tls_cert and 86400 for domain_expiry are the usual cadences.",
 				Validators:  []validator.Int64{int64validator.AtLeast(10)},
 			},
 			"enabled": schema.BoolAttribute{
@@ -104,7 +104,8 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				ElementType: types.StringType,
 				Description: "Regions this target probes from, as operator-defined slugs (e.g. \"us-east\", \"apac-sg\"). " +
 					"Omit to accept the server's default set on create, which need not be every region the fleet has (the uptimepage_regions data source lists them all) — that set is read back into state with no perpetual diff. " +
-					"Set it to enforce an exact set: it travels with the create, so an unknown or disabled id refuses the whole create and no target is left behind, and it is replaced wholesale on change. The server requires at least one region.",
+					"Set it to enforce an exact set: it travels with the create, so an unknown or disabled id refuses the whole create and no target is left behind, and it is replaced wholesale on change. The server requires at least one region. " +
+					"Heartbeat and manual monitors are not probed and refuse it.",
 				// No Default: unlike tags (which default to empty), an omitted set
 				// is server-computed (the auto-assigned region set), not empty.
 				// UseStateForUnknown keeps the prior set in the plan when config is
@@ -140,11 +141,12 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				},
 			},
 			"alert_confirmations": schema.Int64Attribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     int64default.StaticInt64(2),
-				Description: "Consecutive failing checks before an incident opens, and passing checks before it closes.",
-				Validators:  []validator.Int64{int64validator.Between(1, math.MaxUint32)},
+				Optional:      true,
+				Computed:      true,
+				Default:       int64default.StaticInt64(2),
+				Description:   "Consecutive failing checks before an incident opens, and passing checks before it closes. A manual monitor takes exactly 1, which is planned when this is left out.",
+				Validators:    []validator.Int64{int64validator.Between(1, math.MaxUint32)},
+				PlanModifiers: []planmodifier.Int64{oneConfirmationWhenManual()},
 			},
 			"notify_recovery": schema.BoolAttribute{
 				Optional:    true,
@@ -183,7 +185,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"check": schema.SingleNestedAttribute{
 				Required:    true,
-				Description: "Check definition. Set `type` and the matching nested block.",
+				Description: "Check definition. Set `type` and the matching nested block; `manual` has none.",
 				Attributes: map[string]schema.Attribute{
 					"type": schema.StringAttribute{
 						Required:      true,
@@ -405,11 +407,12 @@ func checkKinds() []string {
 	return []string{
 		client.CheckTypeHTTP, client.CheckTypeTCP, client.CheckTypePing,
 		client.CheckTypeHeartbeat, client.CheckTypeTLSCert, client.CheckTypeDomainExpiry,
-		client.CheckTypeDNS, client.CheckTypeFlow,
+		client.CheckTypeDNS, client.CheckTypeFlow, client.CheckTypeManual,
 	}
 }
 
 // checkBlocksPresent reports which nested block each kind's config actually set.
+// manual has no block, so it counts as set exactly when it is the type.
 func checkBlocksPresent(c checkModel) map[string]bool {
 	return map[string]bool{
 		client.CheckTypeHTTP:         c.HTTP != nil,
@@ -420,6 +423,7 @@ func checkBlocksPresent(c checkModel) map[string]bool {
 		client.CheckTypeDomainExpiry: c.DomainExpiry != nil,
 		client.CheckTypeDNS:          c.DNS != nil,
 		client.CheckTypeFlow:         c.Flow != nil,
+		client.CheckTypeManual:       c.Type.ValueString() == client.CheckTypeManual,
 	}
 }
 
@@ -774,13 +778,12 @@ func validateTargetConfig(ctx context.Context, cfg targetModel, diags *diag.Diag
 		if cfg.Check.Heartbeat != nil {
 			validateHeartbeatCadence(cfg.Interval, cfg.Check.Heartbeat, diags)
 		}
-		// The API refuses the create; the plan says so earlier and names the attribute.
-		if !cfg.Regions.IsNull() && !cfg.Regions.IsUnknown() {
-			diags.AddAttributeError(path.Root("regions"),
-				"A heartbeat is not probed from regions",
-				"Nothing is sent to a heartbeat, so the API rejects regions on one. Remove "+
-					"the regions argument.")
-		}
+		rejectRegions(cfg.Regions, "A heartbeat is not probed from regions",
+			"Nothing is sent to a heartbeat, so the API rejects regions on one.", diags)
+	case client.CheckTypeManual:
+		validateManualSchedule(cfg.Interval, cfg.AlertConfirmations, diags)
+		rejectRegions(cfg.Regions, "A manual monitor is not probed from regions",
+			"Nothing probes a manual monitor, so the API rejects regions on one.", diags)
 	case client.CheckTypeTLSCert:
 		if cfg.Check.TLSCert != nil {
 			validateExpiryDays(path.Root("check").AtName("tls_cert"),
@@ -818,6 +821,40 @@ func validateRegionPolicy(p *regionPolicyModel, diags *diag.Diagnostics) {
 	case p.Mode.ValueString() != client.RegionPolicyCount && !p.Count.IsNull():
 		diags.AddAttributeError(at, "Unexpected region_policy count",
 			fmt.Sprintf("count applies to mode = \"count\" only, not %q.", p.Mode.ValueString()))
+	}
+}
+
+// rejectRegions catches the create the API would refuse for a kind nothing
+// probes, earlier and naming the attribute.
+func rejectRegions(regions types.Set, summary, why string, diags *diag.Diagnostics) {
+	if !regions.IsNull() && !regions.IsUnknown() {
+		diags.AddAttributeError(path.Root("regions"), summary, why+" Remove the regions argument.")
+	}
+}
+
+// The API pins both on a manual monitor: its state is restated once a minute,
+// and the person who set it already confirmed it.
+const (
+	manualIntervalSecs  = 60
+	manualConfirmations = 1
+)
+
+// validateManualSchedule refuses what the API would not keep. A count left out
+// is planned by oneConfirmationWhenManual.
+func validateManualSchedule(interval, confirmations types.Int64, diags *diag.Diagnostics) {
+	if !interval.IsNull() && !interval.IsUnknown() && interval.ValueInt64() != manualIntervalSecs {
+		diags.AddAttributeError(path.Root("interval"),
+			fmt.Sprintf("A manual monitor runs at interval = %d", manualIntervalSecs),
+			fmt.Sprintf("interval is %ds, but a manual monitor restates its state once a "+
+				"minute and the API accepts only %d.", interval.ValueInt64(), manualIntervalSecs))
+	}
+	if !confirmations.IsNull() && !confirmations.IsUnknown() && confirmations.ValueInt64() != manualConfirmations {
+		diags.AddAttributeError(path.Root("alert_confirmations"),
+			fmt.Sprintf("A manual monitor takes alert_confirmations = %d", manualConfirmations),
+			fmt.Sprintf("alert_confirmations is %d, but setting the state is the confirmation, "+
+				"so a manual monitor opens its incident on the first bad result and the API "+
+				"keeps only %d. Set %d or leave it out.",
+				confirmations.ValueInt64(), manualConfirmations, manualConfirmations))
 	}
 }
 

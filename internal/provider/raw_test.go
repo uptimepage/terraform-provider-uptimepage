@@ -70,3 +70,28 @@ func planString(t *testing.T, sch schema.Schema, p path.Path, req planmodifier.S
 	}
 	return resp
 }
+
+// planInt64 is planString for an int64 attribute. req.Config carries the
+// whole-resource config raw for a modifier that reads a sibling attribute.
+func planInt64(t *testing.T, sch schema.Schema, p path.Path, req planmodifier.Int64Request) planmodifier.Int64Response {
+	t.Helper()
+	ctx := context.Background()
+	attr, diags := sch.AttributeAtPath(ctx, p)
+	if diags.HasError() {
+		t.Fatalf("attribute at %s: %v", p, diags)
+	}
+	req.Path = p
+	req.Config.Schema = sch
+	req.State.Schema = sch
+	req.Plan.Schema = sch
+	resp := planmodifier.Int64Response{PlanValue: req.PlanValue}
+	for _, m := range attr.(schema.Int64Attribute).PlanModifiers {
+		step := planmodifier.Int64Response{PlanValue: req.PlanValue}
+		m.PlanModifyInt64(ctx, req, &step)
+		req.PlanValue = step.PlanValue
+		resp.PlanValue = step.PlanValue
+		resp.RequiresReplace = resp.RequiresReplace || step.RequiresReplace
+		resp.Diagnostics.Append(step.Diagnostics...)
+	}
+	return resp
+}

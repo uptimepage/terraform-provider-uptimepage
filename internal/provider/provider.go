@@ -51,7 +51,7 @@ func (p *Provider) Metadata(_ context.Context, _ provider.MetadataRequest, resp 
 
 func (p *Provider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "Manage Uptimepage monitors, status pages, status page components and notification channels as code. Monitors cover HTTP, TCP, ICMP ping, inbound cron heartbeats, DNS, TLS certificate expiry, domain expiry and scripted browser login flows. Every resource supports import, and the provider works against the hosted service or a self-hosted instance.",
+		Description: "Manage Uptimepage monitors, status pages, status page components and notification channels as code. Monitors cover HTTP, TCP, ICMP ping, inbound cron heartbeats, DNS, TLS certificate expiry, domain expiry, scripted browser login flows and manual monitors whose state you set by hand. Every resource supports import, and the provider works against the hosted service or a self-hosted instance.",
 		Attributes: map[string]schema.Attribute{
 			"endpoint": schema.StringAttribute{
 				Optional:    true,

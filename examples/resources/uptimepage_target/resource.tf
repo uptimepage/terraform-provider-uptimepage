@@ -86,6 +86,18 @@ resource "uptimepage_target" "nightly_backup" {
   }
 }
 
+# Manual monitor. Nothing probes it: an operator sets it to up, degraded or down
+# in the app, over the API or through MCP, and that state is not part of this
+# config. The API pins the interval to 60 and the confirmation count to 1.
+resource "uptimepage_target" "sip_trunks" {
+  name     = "SIP trunks"
+  interval = 60
+
+  check = {
+    type = "manual"
+  }
+}
+
 # ICMP echo check. Reaches a host that answers no TCP port at all, such as a
 # bare VM or an appliance. The host has to be publicly routable: the SSRF guard
 # refuses loopback, private and link-local addresses unless the instance sets
