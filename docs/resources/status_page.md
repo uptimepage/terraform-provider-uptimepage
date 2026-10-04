@@ -40,13 +40,13 @@ resource "uptimepage_status_page" "public" {
 ### Optional
 
 - `about` (String) Public 'about' blurb shown on the page.
-- `brand_color` (String) Accent color as a 6-digit hex like `#3b82f6`. Defaults to the configured brand color when unset.
+- `brand_color` (String) Accent color as a 6-digit hex like `#3b82f6`. Omit to choose the color in the console instead; a new page uses the configured brand color. Removing it keeps the color it set; clear it in the console to go back to the configured one.
 - `display_name` (String) Public header name. Falls back to the org name when unset.
 - `enabled` (Boolean) Whether the page is published (publicly reachable).
 - `hide_from_search` (Boolean) Serve the page, its incident pages and its feed with `noindex`. The URL keeps working for anyone who has it. Omit to keep whatever the page already has, so a page hidden from the console is not republished by an apply.
 - `locale` (String) Language of the page's own labels, dates and subscriber emails, one of `en`, `de`. Text you write is shown as written. Omit to choose the language in the console instead; a new page starts in English. Removing it keeps the language it set, so set `en` to switch back. Needs a server with page languages.
 - `show_powered_by` (Boolean) Pin the 'powered by' footer on or off. Omit to inherit the deployment default. Honoured only on plans that sell white-label; elsewhere the badge renders whatever this says.
-- `style` (String) Visual theme.
+- `style` (String) Visual theme. Omit to choose the theme in the console instead; a new page starts on `default`. Removing it keeps the theme it set, so set `default` to switch back.
 - `website_url` (String) Your own site. The page header links here, so a reader who arrived from it can get back. `http(s)` only, at most 200 characters.
 
 ### Read-Only

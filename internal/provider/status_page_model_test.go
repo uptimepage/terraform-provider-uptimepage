@@ -114,8 +114,8 @@ func TestStatusPageToNew_CreatesUnpublished(t *testing.T) {
 
 func TestStatusPageToUpdate_UndeclaredFlagKeepsPriorValue(t *testing.T) {
 	// What the framework hands a plan whose config omits hide_from_search:
-	// UseStateForUnknown fills it from state, so a page hidden in the console
-	// is re-sent hidden rather than reset.
+	// UseNonNullStateForUnknown fills it from state, so a page hidden in the
+	// console is re-sent hidden rather than reset.
 	up := statusPageModel{
 		Slug:           types.StringValue("acme"),
 		Name:           types.StringValue("Acme"),

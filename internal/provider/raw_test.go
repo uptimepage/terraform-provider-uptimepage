@@ -95,3 +95,26 @@ func planInt64(t *testing.T, sch schema.Schema, p path.Path, req planmodifier.In
 	}
 	return resp
 }
+
+// planBool is planString for a bool attribute.
+func planBool(t *testing.T, sch schema.Schema, p path.Path, req planmodifier.BoolRequest) planmodifier.BoolResponse {
+	t.Helper()
+	ctx := context.Background()
+	attr, diags := sch.AttributeAtPath(ctx, p)
+	if diags.HasError() {
+		t.Fatalf("attribute at %s: %v", p, diags)
+	}
+	req.Path = p
+	req.State.Schema = sch
+	req.Plan.Schema = sch
+	resp := planmodifier.BoolResponse{PlanValue: req.PlanValue}
+	for _, m := range attr.(schema.BoolAttribute).PlanModifiers {
+		step := planmodifier.BoolResponse{PlanValue: req.PlanValue}
+		m.PlanModifyBool(ctx, req, &step)
+		req.PlanValue = step.PlanValue
+		resp.PlanValue = step.PlanValue
+		resp.RequiresReplace = resp.RequiresReplace || step.RequiresReplace
+		resp.Diagnostics.Append(step.Diagnostics...)
+	}
+	return resp
+}

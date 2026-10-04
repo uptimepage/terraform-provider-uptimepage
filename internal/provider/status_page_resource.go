@@ -109,25 +109,35 @@ func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Public 'about' blurb shown on the page.",
 			},
 			"brand_color": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
-				Description: "Accent color as a 6-digit hex like `#3b82f6`. Defaults to the configured brand color when unset.",
+				Optional: true,
+				Computed: true,
+				Description: "Accent color as a 6-digit hex like `#3b82f6`. Omit to choose the color in the console instead; " +
+					"a new page uses the configured brand color. Removing it keeps the color it set; clear it in the console " +
+					"to go back to the configured one.",
 				Validators: []validator.String{stringvalidator.RegexMatches(
 					regexp.MustCompile(`^#[0-9a-fA-F]{6}$`),
 					"must be a 6-digit hex color like #3b82f6",
 				)},
+				// Branding is sent whole, so an unknown here would go out as null
+				// and clear a color set in the console.
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseNonNullStateForUnknown()},
 			},
 			"style": schema.StringAttribute{
-				Optional:    true,
-				Computed:    true,
-				Description: "Visual theme.",
-				Validators:  []validator.String{stringvalidator.OneOf(client.StatusPageStyles...)},
+				Optional: true,
+				Computed: true,
+				Description: "Visual theme. Omit to choose the theme in the console instead; a new page starts on `default`. " +
+					"Removing it keeps the theme it set, so set `default` to switch back.",
+				Validators: []validator.String{stringvalidator.OneOf(client.StatusPageStyles...)},
+				// Same as brand_color: a null sent here resets the theme to the
+				// server default.
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseNonNullStateForUnknown()},
 			},
 			"show_powered_by": schema.BoolAttribute{
 				Optional: true,
 				Computed: true,
 				Description: "Pin the 'powered by' footer on or off. Omit to inherit the deployment default. " +
 					"Honoured only on plans that sell white-label; elsewhere the badge renders whatever this says.",
+				// A null prior means "inherit" and is planned as itself.
 				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
 			},
 			"hide_from_search": schema.BoolAttribute{
@@ -135,7 +145,7 @@ func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Computed: true,
 				Description: "Serve the page, its incident pages and its feed with `noindex`. The URL keeps working for anyone who has it. " +
 					"Omit to keep whatever the page already has, so a page hidden from the console is not republished by an apply.",
-				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+				PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseNonNullStateForUnknown()},
 			},
 			"website_url": schema.StringAttribute{
 				Optional: true,
