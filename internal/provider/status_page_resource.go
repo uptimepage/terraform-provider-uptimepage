@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"regexp"
+	"strings"
 
 	"unicode/utf8"
 
@@ -141,6 +142,18 @@ func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description: "Your own site. The page header links here, so a reader who arrived from it can get back. " +
 					"`http(s)` only, at most 200 characters.",
 				Validators: []validator.String{websiteURLValidator{}},
+			},
+			"locale": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				Description: "Language of the page's own labels, dates and subscriber emails, one of `" +
+					strings.Join(client.StatusPageLocales, "`, `") + "`. Text you write is shown as written. " +
+					"Omit to choose the language in the console instead; a new page starts in English. " +
+					"Removing it keeps the language it set, so set `en` to switch back. Needs a server with page languages.",
+				Validators: []validator.String{stringvalidator.OneOf(client.StatusPageLocales...)},
+				// Not UseStateForUnknown: it copies a null left by an older provider
+				// into the plan, and the server answers "en" to an omitted field.
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseNonNullStateForUnknown()},
 			},
 			"logo_url": schema.StringAttribute{
 				Computed:    true,

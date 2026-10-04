@@ -22,6 +22,7 @@ type statusPageModel struct {
 	ShowPoweredBy  types.Bool   `tfsdk:"show_powered_by"`
 	HideFromSearch types.Bool   `tfsdk:"hide_from_search"`
 	WebsiteURL     types.String `tfsdk:"website_url"`
+	Locale         types.String `tfsdk:"locale"`
 	LogoURL        types.String `tfsdk:"logo_url"`
 	StatusURL      types.String `tfsdk:"status_url"`
 }
@@ -38,9 +39,10 @@ func (m statusPageModel) toNew() client.NewStatusPage {
 
 func (m statusPageModel) toUpdate() client.StatusPageUpdate {
 	return client.StatusPageUpdate{
-		Name:    m.Name.ValueString(),
-		Slug:    m.Slug.ValueString(),
-		Enabled: m.Enabled.ValueBool(),
+		Name:         m.Name.ValueString(),
+		Slug:         m.Slug.ValueString(),
+		Enabled:      m.Enabled.ValueBool(),
+		PublicLocale: optString(m.Locale),
 		Branding: client.StatusBranding{
 			PublicDisplayName:    optString(m.DisplayName),
 			PublicAbout:          optString(m.About),
@@ -69,6 +71,7 @@ func statusPageToModel(prior statusPageModel, p *client.StatusPage) statusPageMo
 		ShowPoweredBy:  fromOptBool(p.PublicShowPoweredBy),
 		HideFromSearch: types.BoolValue(p.PublicHideFromSearch),
 		WebsiteURL:     keepOpt(prior.WebsiteURL, p.PublicWebsiteURL, false),
+		Locale:         fromOptString(p.PublicLocale),
 		LogoURL:        fromOptString(p.LogoURL),
 		StatusURL:      fromOptString(p.StatusURL),
 	}

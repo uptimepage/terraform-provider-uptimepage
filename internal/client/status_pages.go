@@ -15,6 +15,10 @@ var StatusPageStyles = []string{
 	"nord", "dracula", "corporate", "light", "cupcake", "cyberpunk", "synthwave",
 }
 
+// StatusPageLocales is the set of accepted public_locale values, mirrored from
+// the API's CHECK list.
+var StatusPageLocales = []string{"en", "de"}
+
 // StatusPage is the read shape (`StatusPageView`). Branding fields are flattened
 // onto the page; logo_url / status_url are server-derived and read-only.
 type StatusPage struct {
@@ -32,6 +36,7 @@ type StatusPage struct {
 	ShowPoweredBy        bool    `json:"show_powered_by"`
 	PublicHideFromSearch bool    `json:"public_hide_from_search"`
 	PublicWebsiteURL     *string `json:"public_website_url,omitempty"`
+	PublicLocale         *string `json:"public_locale,omitempty"`
 	LogoURL              *string `json:"logo_url,omitempty"`
 	StatusURL            *string `json:"status_url,omitempty"`
 }
@@ -45,12 +50,14 @@ type NewStatusPage struct {
 }
 
 // StatusPageUpdate is the PATCH body, sent as full desired state. Branding is a
-// nested block that replaces the page's display branding wholesale.
+// nested block that replaces the page's display branding wholesale. The
+// language is a partial field beside it: nil leaves the page's language as is.
 type StatusPageUpdate struct {
-	Name     string         `json:"name"`
-	Slug     string         `json:"slug"`
-	Enabled  bool           `json:"enabled"`
-	Branding StatusBranding `json:"branding"`
+	Name         string         `json:"name"`
+	Slug         string         `json:"slug"`
+	Enabled      bool           `json:"enabled"`
+	PublicLocale *string        `json:"public_locale,omitempty"`
+	Branding     StatusBranding `json:"branding"`
 }
 
 // StatusBranding is the page's display branding, sent whole on every PATCH. A

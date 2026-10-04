@@ -78,6 +78,32 @@ func TestUpdateStatusPage_CarriesSearchVisibilityAndWebsite(t *testing.T) {
 	}
 }
 
+func TestUpdateStatusPage_SendsAndDecodesLocale(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var raw map[string]json.RawMessage
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &raw)
+		if got := string(raw["public_locale"]); got != `"de"` {
+			t.Errorf("public_locale = %s, want \"de\"", got)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"p1","slug":"acme","name":"Acme","enabled":true,"public_style":"default",` +
+			`"show_powered_by":true,"public_hide_from_search":false,"public_locale":"de"}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", "", srv.Client())
+	got, err := c.UpdateStatusPage(context.Background(), "p1", StatusPageUpdate{
+		Name: "Acme", Slug: "acme", PublicLocale: ptr("de"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateStatusPage: %v", err)
+	}
+	if got.PublicLocale == nil || *got.PublicLocale != "de" {
+		t.Errorf("public_locale = %v, want de", got.PublicLocale)
+	}
+}
+
 // A cleared website must travel as null, never be omitted, or the API keeps the
 // old link.
 func TestUpdateStatusPage_ClearedWebsiteMarshalsNull(t *testing.T) {
