@@ -179,6 +179,21 @@ resource "uptimepage_target" "dns" {
   }
 }
 
+# Exact MX set: any record added, removed or changed fails the check.
+resource "uptimepage_target" "mx" {
+  name     = "mx example.com"
+  interval = 300
+
+  check = {
+    type = "dns"
+    dns = {
+      domain           = "example.com"
+      record_type      = "MX"
+      expected_records = ["10 mail.example.com.", "20 alt.example.com."]
+    }
+  }
+}
+
 # Browser login flow check. Runs a headless browser through the steps and
 # asserts the result. Put credentials in an org secret and reference them as
 # {{name}}; an inline literal would be stored as typed. Far heavier than a
@@ -258,6 +273,7 @@ Required:
 Optional:
 
 - `expected_contains` (String) Substring that must appear in an answer.
+- `expected_records` (Set of String) Exact record set: the answer must hold every value and nothing else, so a record added, removed or changed fails the check. Write values as the check's answers show them, e.g. `10 mail.example.com.` for MX. Names compare case-insensitively with the trailing dot optional, addresses by value, TXT exactly. Conflicts with `expected_contains`.
 - `resolver` (String) Custom resolver as ip or ip:port.
 - `timeout_ms` (Number) Timeout in milliseconds (100..60000).
 

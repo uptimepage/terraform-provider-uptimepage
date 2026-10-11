@@ -318,7 +318,7 @@ func TestRegions_ExtractAndRoundTrip(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("regions = %v, want 2 elements", got)
 	}
-	if back := regionsToSet(ctx, got, &diags); !back.Equal(set) {
+	if back := stringsToSet(ctx, got, &diags); !back.Equal(set) {
 		t.Errorf("round-trip set = %v, want %v", back, set)
 	}
 	if diags.HasError() {
@@ -382,6 +382,36 @@ func TestCheckToWire_DNS(t *testing.T) {
 	}
 	if out.DNS == nil || out.DNS.RecordType != "A" || out.DNS.Resolver == nil || *out.DNS.Resolver != "1.1.1.1" {
 		t.Errorf("dns wire wrong: %+v", out.DNS)
+	}
+}
+
+func TestDNSExpectedRecordsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	records := types.SetValueMust(types.StringType, []attr.Value{
+		types.StringValue("10 mail.example.com."),
+		types.StringValue("20 alt.example.com."),
+	})
+	for name, set := range map[string]types.Set{
+		"set":  records,
+		"null": types.SetNull(types.StringType),
+	} {
+		c := checkModel{Type: types.StringValue(client.CheckTypeDNS), DNS: &dnsCheckModel{
+			Domain:          types.StringValue("example.com"),
+			RecordType:      types.StringValue("MX"),
+			ExpectedRecords: set,
+			TimeoutMs:       types.Int64Value(3000),
+		}}
+		wire, d := c.toWire(ctx)
+		if d.HasError() {
+			t.Fatalf("%s: toWire: %v", name, d)
+		}
+		back, d := checkToModel(ctx, c, wire)
+		if d.HasError() {
+			t.Fatalf("%s: checkToModel: %v", name, d)
+		}
+		if !back.DNS.ExpectedRecords.Equal(set) {
+			t.Errorf("%s: read back %v, want %v", name, back.DNS.ExpectedRecords, set)
+		}
 	}
 }
 

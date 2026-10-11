@@ -509,7 +509,19 @@ func dnsCheckAttribute() schema.Attribute {
 			},
 			"resolver":          schema.StringAttribute{Optional: true, Description: "Custom resolver as ip or ip:port."},
 			"expected_contains": schema.StringAttribute{Optional: true, Description: "Substring that must appear in an answer."},
-			"timeout_ms":        timeoutMsAttribute(),
+			"expected_records": schema.SetAttribute{
+				Optional:    true,
+				ElementType: types.StringType,
+				Description: "Exact record set: the answer must hold every value and nothing else, so a record added, removed or changed fails the check. " +
+					"Write values as the check's answers show them, e.g. `10 mail.example.com.` for MX. " +
+					"Names compare case-insensitively with the trailing dot optional, addresses by value, TXT exactly. Conflicts with `expected_contains`.",
+				Validators: []validator.Set{
+					setvalidator.SizeBetween(1, 50),
+					setvalidator.ValueStringsAre(stringvalidator.UTF8LengthBetween(1, 2048)),
+					setvalidator.ConflictsWith(path.MatchRelative().AtParent().AtName("expected_contains")),
+				},
+			},
+			"timeout_ms": timeoutMsAttribute(),
 		},
 	}
 }
@@ -621,7 +633,7 @@ func (r *targetResource) Create(ctx context.Context, req resource.CreateRequest,
 			return
 		}
 	}
-	state.Regions = regionsToSet(ctx, applied, &resp.Diagnostics)
+	state.Regions = stringsToSet(ctx, applied, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
@@ -657,7 +669,7 @@ func (r *targetResource) Read(ctx context.Context, req resource.ReadRequest, res
 		resp.Diagnostics.AddError("Read target regions failed", err.Error())
 		return
 	}
-	next.Regions = regionsToSet(ctx, regions, &resp.Diagnostics)
+	next.Regions = stringsToSet(ctx, regions, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &next)...)
 }
 
@@ -712,7 +724,7 @@ func (r *targetResource) Update(ctx context.Context, req resource.UpdateRequest,
 			return
 		}
 	}
-	state.Regions = regionsToSet(ctx, applied, &resp.Diagnostics)
+	state.Regions = stringsToSet(ctx, applied, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 

@@ -183,13 +183,17 @@ type DomainExpiryCheck struct {
 	Timeout      uint64 `json:"timeout"` // milliseconds
 }
 
-// DNSCheck resolves a name and optionally asserts a substring in the answers.
+// DNSCheck resolves a name and optionally asserts a substring in the answers,
+// or that the answers are exactly ExpectedRecords. A nil ExpectedRecords is
+// omitted: the check is replaced whole, so absent clears it, and a server that
+// predates the field refuses the key even as null.
 type DNSCheck struct {
-	Domain           string  `json:"domain"`
-	RecordType       string  `json:"record_type"` // A, AAAA, CNAME, MX, NS, TXT, SOA, PTR, CAA, SRV
-	Resolver         *string `json:"resolver"`
-	ExpectedContains *string `json:"expected_contains"`
-	Timeout          uint64  `json:"timeout"` // milliseconds
+	Domain           string   `json:"domain"`
+	RecordType       string   `json:"record_type"` // A, AAAA, CNAME, MX, NS, TXT, SOA, PTR, CAA, SRV
+	Resolver         *string  `json:"resolver"`
+	ExpectedContains *string  `json:"expected_contains"`
+	ExpectedRecords  []string `json:"expected_records,omitempty"`
+	Timeout          uint64   `json:"timeout"` // milliseconds
 }
 
 // FlowCheck drives a headless browser through Steps starting at StartURL, so it

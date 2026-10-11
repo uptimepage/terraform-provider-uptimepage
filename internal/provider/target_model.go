@@ -110,6 +110,7 @@ type dnsCheckModel struct {
 	RecordType       types.String `tfsdk:"record_type"`
 	Resolver         types.String `tfsdk:"resolver"`
 	ExpectedContains types.String `tfsdk:"expected_contains"`
+	ExpectedRecords  types.Set    `tfsdk:"expected_records"`
 	TimeoutMs        types.Int64  `tfsdk:"timeout_ms"`
 }
 
@@ -241,29 +242,30 @@ func regionPolicyToModel(ctx context.Context, p *client.RegionPolicy, diags *dia
 }
 
 func (m targetModel) tags(ctx context.Context, diags *diag.Diagnostics) []string {
-	if m.Tags.IsNull() || m.Tags.IsUnknown() {
-		return nil
-	}
-	var tags []string
-	diags.Append(m.Tags.ElementsAs(ctx, &tags, false)...)
-	return tags
+	return setStrings(ctx, m.Tags, diags)
 }
 
 // regions is the configured set as a slice; null or unknown is nil, which
 // leaves the server-assigned set in place.
 func (m targetModel) regions(ctx context.Context, diags *diag.Diagnostics) []string {
-	if m.Regions.IsNull() || m.Regions.IsUnknown() {
-		return nil
-	}
-	var regions []string
-	diags.Append(m.Regions.ElementsAs(ctx, &regions, false)...)
-	return regions
+	return setStrings(ctx, m.Regions, diags)
 }
 
-// regionsToSet converts a region slice read back from the API into a tfsdk Set.
-// A Set is order-insensitive, so the server's ordering never produces a diff.
-func regionsToSet(ctx context.Context, regions []string, diags *diag.Diagnostics) types.Set {
-	set, d := types.SetValueFrom(ctx, types.StringType, regions)
+// setStrings is a configured string set as a slice; null or unknown is nil.
+func setStrings(ctx context.Context, set types.Set, diags *diag.Diagnostics) []string {
+	if set.IsNull() || set.IsUnknown() {
+		return nil
+	}
+	var out []string
+	diags.Append(set.ElementsAs(ctx, &out, false)...)
+	return out
+}
+
+// stringsToSet converts a string slice read back from the API into a tfsdk
+// Set, nil to null. A Set is order-insensitive, so the server's ordering never
+// produces a diff.
+func stringsToSet(ctx context.Context, values []string, diags *diag.Diagnostics) types.Set {
+	set, d := types.SetValueFrom(ctx, types.StringType, values)
 	diags.Append(d...)
 	return set
 }
@@ -350,6 +352,7 @@ func (c checkModel) toWire(ctx context.Context) (client.CheckSpec, diag.Diagnost
 			RecordType:       c.DNS.RecordType.ValueString(),
 			Resolver:         optString(c.DNS.Resolver),
 			ExpectedContains: optString(c.DNS.ExpectedContains),
+			ExpectedRecords:  setStrings(ctx, c.DNS.ExpectedRecords, &diags),
 			Timeout:          uint64(c.DNS.TimeoutMs.ValueInt64()),
 		}
 	case client.CheckTypeFlow:
@@ -568,6 +571,7 @@ func checkToModel(ctx context.Context, prior checkModel, spec client.CheckSpec) 
 			RecordType:       types.StringValue(spec.DNS.RecordType),
 			Resolver:         fromOptString(spec.DNS.Resolver),
 			ExpectedContains: fromOptString(spec.DNS.ExpectedContains),
+			ExpectedRecords:  stringsToSet(ctx, spec.DNS.ExpectedRecords, &diags),
 			TimeoutMs:        types.Int64Value(int64(spec.DNS.Timeout)),
 		}
 	case spec.Flow != nil:
