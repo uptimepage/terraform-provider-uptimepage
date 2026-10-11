@@ -777,6 +777,64 @@ func TestValidateExpiryDaysPointsAtTheAttribute(t *testing.T) {
 	}
 }
 
+func TestValidateDNSAddress(t *testing.T) {
+	s := types.StringValue
+	for _, c := range []struct {
+		domain, recordType types.String
+		wantErr            bool
+		why                string
+	}{
+		{s("192.0.2.1"), s("PTR"), false, "ipv4 on PTR is looked up by its reverse name"},
+		{s("2001:db8::1"), s("PTR"), false, "ipv6 on PTR is looked up by its reverse name"},
+		{s("1.2.0.192.in-addr.arpa"), s("PTR"), false, "the reverse name itself"},
+		{s("example.com"), s("A"), false, "a name"},
+		{s("192.0.2.1"), s("A"), true, "ipv4 on A"},
+		{s("2001:db8::1"), s("AAAA"), true, "ipv6 on AAAA"},
+		{s("192.0.2.1"), s("TXT"), true, "ipv4 on TXT"},
+		{s("192.0.2.1."), s("A"), true, "ipv4 with a trailing dot"},
+		{s("[2001:db8::1]"), s("AAAA"), true, "bracketed ipv6"},
+		{types.StringUnknown(), s("A"), false, "unknown domain defers to apply"},
+		{s("192.0.2.1"), types.StringUnknown(), false, "unknown record type defers to apply"},
+	} {
+		t.Run(c.why, func(t *testing.T) {
+			var d diag.Diagnostics
+			validateDNSAddress(&dnsCheckModel{Domain: c.domain, RecordType: c.recordType}, &d)
+			if got := d.HasError(); got != c.wantErr {
+				t.Fatalf("error=%v, want %v (%v)", got, c.wantErr, d)
+			}
+			if !c.wantErr {
+				return
+			}
+			wp, ok := d.Errors()[0].(diag.DiagnosticWithPath)
+			if !ok || wp.Path().String() != "check.dns.domain" {
+				t.Errorf("error does not point at check.dns.domain: %v", d.Errors()[0])
+			}
+		})
+	}
+}
+
+func TestValidateTargetConfigChecksTheDNSAddress(t *testing.T) {
+	cfg := func(recordType string) targetModel {
+		return targetModel{
+			Name:     types.StringValue("x"),
+			Interval: types.Int64Value(60),
+			Check: checkModel{Type: types.StringValue(client.CheckTypeDNS), DNS: &dnsCheckModel{
+				Domain:     types.StringValue("192.0.2.1"),
+				RecordType: types.StringValue(recordType),
+				TimeoutMs:  types.Int64Value(3000),
+			}},
+			Regions: types.SetNull(types.StringType),
+		}
+	}
+	for recordType, wantErr := range map[string]bool{"A": true, "PTR": false} {
+		var d diag.Diagnostics
+		validateTargetConfig(context.Background(), cfg(recordType), &d)
+		if got := d.HasError(); got != wantErr {
+			t.Errorf("%s on an address: error=%v, want %v (%v)", recordType, got, wantErr, d)
+		}
+	}
+}
+
 // The API caps expiry days at 365 and rejects 0. The schema used to accept
 // 0..36500, so anything outside the real range planned clean and 400d.
 func TestExpiryDaysRangeMatchesTheAPI(t *testing.T) {

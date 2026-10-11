@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
@@ -499,7 +500,7 @@ func dnsCheckAttribute() schema.Attribute {
 		Optional:    true,
 		Description: "DNS resolution check (when type = dns).",
 		Attributes: map[string]schema.Attribute{
-			"domain": hostAttribute("Name to resolve (FQDN). Underscore labels such as `_dmarc` are allowed.", canonicalDNSNameValidator("check.domain")),
+			"domain": hostAttribute("Name to resolve (FQDN). Underscore labels such as `_dmarc` are allowed. A PTR lookup also takes an IP address.", canonicalDNSNameValidator("check.domain")),
 			"record_type": schema.StringAttribute{
 				Required:    true,
 				Description: "DNS record type.",
@@ -794,6 +795,10 @@ func validateTargetConfig(ctx context.Context, cfg targetModel, diags *diag.Diag
 			validateExpiryDays(path.Root("check").AtName("domain_expiry"),
 				cfg.Check.DomainExpiry.WarnDays, cfg.Check.DomainExpiry.CriticalDays, diags)
 		}
+	case client.CheckTypeDNS:
+		if cfg.Check.DNS != nil {
+			validateDNSAddress(cfg.Check.DNS, diags)
+		}
 	}
 
 	// ConflictsWith rules out both; this rules out neither.
@@ -902,6 +907,28 @@ func validateExpiryDays(at path.Path, warn, critical types.Int64, diags *diag.Di
 				"fire before the failure. The API rejects this.",
 				warn.ValueInt64(), critical.ValueInt64()))
 	}
+}
+
+// The API looks up a PTR check on an address by its reverse name and refuses an
+// address for every other record type, which would query it as a name. Judged
+// on the stored form, so "192.0.2.1." is caught on the same plan that asks for
+// its trailing dot to go.
+func validateDNSAddress(dns *dnsCheckModel, diags *diag.Diagnostics) {
+	if dns.Domain.IsNull() || dns.Domain.IsUnknown() || dns.RecordType.IsNull() || dns.RecordType.IsUnknown() {
+		return
+	}
+	recordType := dns.RecordType.ValueString()
+	if recordType == "PTR" {
+		return
+	}
+	verdict, stored := classifyHost(dns.Domain.ValueString(), true)
+	if (verdict != hostCanonical && verdict != hostRewritten) || net.ParseIP(stored) == nil {
+		return
+	}
+	diags.AddAttributeError(path.Root("check").AtName("dns").AtName("domain"),
+		"Address on a non-PTR lookup",
+		fmt.Sprintf("%s records are looked up by name, not by address; only PTR takes an IP. "+
+			"The API rejects this.", recordType))
 }
 
 // validateFlowSteps enforces that each step carries the fields its op needs, so
