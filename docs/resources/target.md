@@ -252,7 +252,7 @@ Optional:
 
 Required:
 
-- `domain` (String) Name to resolve (FQDN). Lowercase, no trailing dot, punycode for non-ASCII.
+- `domain` (String) Name to resolve (FQDN). Underscore labels such as `_dmarc` are allowed. Lowercase, no trailing dot, punycode for non-ASCII.
 - `record_type` (String) DNS record type.
 
 Optional:

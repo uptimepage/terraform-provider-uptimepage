@@ -371,11 +371,11 @@ func portAttribute() schema.Attribute {
 // differently. See canonicalHostValidator for why the form is load-bearing.
 const hostFormClause = " Lowercase, no trailing dot, punycode for non-ASCII."
 
-func hostAttribute(attr, purpose string) schema.Attribute {
+func hostAttribute(purpose string, canonical validator.String) schema.Attribute {
 	return schema.StringAttribute{
 		Required:    true,
 		Description: purpose + hostFormClause,
-		Validators:  []validator.String{canonicalHostValidator(attr)},
+		Validators:  []validator.String{canonical},
 	}
 }
 
@@ -392,7 +392,7 @@ func tcpCheckAttribute() schema.Attribute {
 		Optional:    true,
 		Description: "TCP connect check (when type = tcp).",
 		Attributes: map[string]schema.Attribute{
-			"host":       hostAttribute("check.host", "Hostname or IP to connect to."),
+			"host":       hostAttribute("Hostname or IP to connect to.", canonicalHostValidator("check.host")),
 			"port":       portAttribute(),
 			"timeout_ms": timeoutMsAttribute(),
 		},
@@ -460,7 +460,7 @@ func pingCheckAttribute() schema.Attribute {
 		Optional:    true,
 		Description: "ICMP echo check (when type = ping). No port: an echo request is not addressed to one.",
 		Attributes: map[string]schema.Attribute{
-			"host":       hostAttribute("check.host", "Hostname or IP to send the echo request to."),
+			"host":       hostAttribute("Hostname or IP to send the echo request to.", canonicalHostValidator("check.host")),
 			"timeout_ms": timeoutMsAttribute(),
 		},
 	}
@@ -471,7 +471,7 @@ func tlsCertCheckAttribute() schema.Attribute {
 		Optional:    true,
 		Description: "TLS certificate expiry check (when type = tls_cert). warn_days must be greater than critical_days.",
 		Attributes: map[string]schema.Attribute{
-			"host":          hostAttribute("check.host", "Hostname to open the TLS connection to."),
+			"host":          hostAttribute("Hostname to open the TLS connection to.", canonicalHostValidator("check.host")),
 			"port":          portAttribute(),
 			"server_name":   schema.StringAttribute{Optional: true, Description: "SNI to send if different from host."},
 			"warn_days":     expiryDaysAttribute("Warn when the cert expires within this many days."),
@@ -486,7 +486,7 @@ func domainExpiryCheckAttribute() schema.Attribute {
 		Optional:    true,
 		Description: "Domain registration expiry check (when type = domain_expiry). warn_days must be greater than critical_days.",
 		Attributes: map[string]schema.Attribute{
-			"domain":        hostAttribute("check.domain", "Domain whose registration expiry is read."),
+			"domain":        hostAttribute("Domain whose registration expiry is read.", canonicalHostValidator("check.domain")),
 			"warn_days":     expiryDaysAttribute("Warn when the domain expires within this many days."),
 			"critical_days": expiryDaysAttribute("Fail when the domain expires within this many days."),
 			"timeout_ms":    timeoutMsAttribute(),
@@ -499,7 +499,7 @@ func dnsCheckAttribute() schema.Attribute {
 		Optional:    true,
 		Description: "DNS resolution check (when type = dns).",
 		Attributes: map[string]schema.Attribute{
-			"domain": hostAttribute("check.domain", "Name to resolve (FQDN)."),
+			"domain": hostAttribute("Name to resolve (FQDN). Underscore labels such as `_dmarc` are allowed.", canonicalDNSNameValidator("check.domain")),
 			"record_type": schema.StringAttribute{
 				Required:    true,
 				Description: "DNS record type.",

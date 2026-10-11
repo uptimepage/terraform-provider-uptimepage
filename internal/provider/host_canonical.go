@@ -47,8 +47,11 @@ const (
 //
 // classifyHost mirrors the API's canonicalize_check for plain-ASCII hosts. The
 // second value is the form the API would store, or for hostRejected the rule
-// that was broken, so the message can describe the actual failure.
-func classifyHost(raw string) (hostVerdict, string) {
+// that was broken, so the message can describe the actual failure. dnsName
+// applies the rule the API keeps for a DNS query name, which also allows the
+// underscore: _dmarc.example.com is an ordinary name to resolve but not a host
+// to connect to.
+func classifyHost(raw string, dnsName bool) (hostVerdict, string) {
 	// Brackets come off first and unconditionally, matching the API: a
 	// bracketed pair is stripped whether or not what it wraps is an IP, so
 	// "[example.com]" is stored as "example.com". One lone bracket is not a
@@ -77,7 +80,7 @@ func classifyHost(raw string) (hostVerdict, string) {
 		return hostUnpredictable, ""
 	}
 	host = strings.ToLower(host)
-	if problem := asciiDomainProblem(host); problem != "" {
+	if problem := asciiDomainProblem(host, dnsName); problem != "" {
 		return hostRejected, problem
 	}
 	return hostVerdictFor(raw, host)
@@ -114,7 +117,7 @@ func hasPunycodeLabel(host string) bool {
 // the ASCII subset. Returns the rule that was broken, or "" when the host is
 // valid: five different rules reject here, and one message covering only the
 // character set leaves the other four looking like a bug in the provider.
-func asciiDomainProblem(host string) string {
+func asciiDomainProblem(host string, dnsName bool) string {
 	switch {
 	case len(host) == 0:
 		return "a host cannot be empty"
@@ -137,15 +140,23 @@ func asciiDomainProblem(host string) string {
 		for i := range len(label) {
 			c := label[i]
 			ldh := c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-'
-			if !ldh {
-				return fmt.Sprintf("a label may hold only letters, digits and hyphens, but %q holds %q", label, string(c))
+			if ldh || dnsName && c == '_' {
+				continue
 			}
+			allowed := "letters, digits and hyphens"
+			if dnsName {
+				allowed = "letters, digits, hyphens and underscores"
+			}
+			return fmt.Sprintf("a label may hold only %s, but %q holds %q", allowed, label, string(c))
 		}
 	}
 	return ""
 }
 
-type canonicalHostValidatorImpl struct{ attr string }
+type canonicalHostValidatorImpl struct {
+	attr    string
+	dnsName bool
+}
 
 func (v canonicalHostValidatorImpl) Description(context.Context) string {
 	return "host must be in the canonical form the API stores; checked for plain-ASCII hosts only"
@@ -160,7 +171,7 @@ func (v canonicalHostValidatorImpl) ValidateString(ctx context.Context, req vali
 		return
 	}
 	raw := req.ConfigValue.ValueString()
-	switch got, canon := classifyHost(raw); got {
+	switch got, canon := classifyHost(raw, v.dnsName); got {
 	case hostRejected:
 		resp.Diagnostics.AddAttributeError(req.Path, "Invalid host",
 			fmt.Sprintf("%q is not a valid domain or IP address: %s.", raw, canon))
@@ -175,4 +186,9 @@ func (v canonicalHostValidatorImpl) ValidateString(ctx context.Context, req vali
 // canonicalHostValidator rejects at plan time what the API would rewrite.
 func canonicalHostValidator(attr string) validator.String {
 	return canonicalHostValidatorImpl{attr: attr}
+}
+
+// canonicalDNSNameValidator is canonicalHostValidator for a DNS query name.
+func canonicalDNSNameValidator(attr string) validator.String {
+	return canonicalHostValidatorImpl{attr: attr, dnsName: true}
 }

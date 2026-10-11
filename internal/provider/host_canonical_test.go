@@ -69,7 +69,7 @@ var canonicalHostCases = []struct {
 func TestClassifyHostMatchesTheAPICorpus(t *testing.T) {
 	for _, c := range canonicalHostCases {
 		t.Run(c.why, func(t *testing.T) {
-			got, canon := classifyHost(c.in)
+			got, canon := classifyHost(c.in, false)
 			if got != c.want {
 				t.Fatalf("classifyHost(%q) = %v, want %v", c.in, got, c.want)
 			}
@@ -125,10 +125,54 @@ func TestDNSLengthLimits(t *testing.T) {
 		{label + "." + label + "." + label + "." + strings.Repeat("a", 62), hostRejected, "254-character host"},
 	} {
 		t.Run(c.why, func(t *testing.T) {
-			if got, _ := classifyHost(c.in); got != c.want {
+			if got, _ := classifyHost(c.in, false); got != c.want {
 				t.Errorf("classifyHost(%s) = %v, want %v", c.why, got, c.want)
 			}
 		})
+	}
+}
+
+// dnsNameCases mirrors the API's DNS query name corpus. The host corpus holds
+// for DNS names too, except that an underscore is allowed.
+var dnsNameCases = []struct {
+	in     string
+	want   hostVerdict
+	stored string
+}{
+	{"_dmarc.example.com", hostCanonical, "_dmarc.example.com"},
+	{"s1._domainkey.example.com", hostCanonical, "s1._domainkey.example.com"},
+	{"_sip._tcp.example.com", hostCanonical, "_sip._tcp.example.com"},
+	{"foo_bar.example.com", hostCanonical, "foo_bar.example.com"},
+	{"_ACME-challenge.Example.COM.", hostRewritten, "_acme-challenge.example.com"},
+	{"-lead.example.com", hostRejected, ""},
+	{"a..b.example.com", hostRejected, ""},
+	{"exa mple.com", hostRejected, ""},
+	{strings.Repeat("a", 64) + ".example.com", hostRejected, ""},
+	{strings.Repeat(strings.Repeat("a", 63)+".", 3) + strings.Repeat("a", 62), hostRejected, ""},
+}
+
+func TestClassifyDNSNameMatchesTheAPICorpus(t *testing.T) {
+	for _, c := range dnsNameCases {
+		got, canon := classifyHost(c.in, true)
+		if got != c.want {
+			t.Errorf("classifyHost(%q, dns) = %v, want %v", c.in, got, c.want)
+			continue
+		}
+		if c.stored != "" && canon != c.stored {
+			t.Errorf("classifyHost(%q, dns) = %q, the API stores %q", c.in, canon, c.stored)
+		}
+	}
+	for _, c := range canonicalHostCases {
+		if strings.Contains(c.in, "_") {
+			continue
+		}
+		host, hostCanon := classifyHost(c.in, false)
+		dns, dnsCanon := classifyHost(c.in, true)
+		if host != dns {
+			t.Errorf("%q is %v as a host but %v as a DNS name", c.in, host, dns)
+		} else if host != hostRejected && hostCanon != dnsCanon {
+			t.Errorf("%q is stored as %q as a host but %q as a DNS name", c.in, hostCanon, dnsCanon)
+		}
 	}
 }
 
@@ -232,8 +276,11 @@ func TestEveryHostAttributeIsCanonicalValidated(t *testing.T) {
 			}
 			guarded := false
 			for _, v := range sa.Validators {
-				if _, ok := v.(canonicalHostValidatorImpl); ok {
+				if impl, ok := v.(canonicalHostValidatorImpl); ok {
 					guarded = true
+					if impl.dnsName != (kind == "dns") {
+						t.Errorf("check.%s.%s applies the wrong character rule: dnsName = %v", kind, name, impl.dnsName)
+					}
 				}
 			}
 			if !guarded {
@@ -253,23 +300,25 @@ func TestEveryHostAttributeIsCanonicalValidated(t *testing.T) {
 func TestEachRejectionRuleExplainsItself(t *testing.T) {
 	label := strings.Repeat("a", 64)
 	cases := []struct {
-		in   string
-		want string
-		why  string
+		in      string
+		want    string
+		why     string
+		dnsName bool
 	}{
-		{"", "cannot be empty", "empty host"},
-		{strings.Repeat("a.", 127) + "aa", "at most 253 characters", "host too long"},
-		{label + ".com", "at most 63 characters", "label too long"},
-		{"a..b.com", "empty label", "doubled dot"},
-		{"-lead.com", "begin or end with a hyphen", "leading hyphen"},
-		{"trail-.com", "begin or end with a hyphen", "trailing hyphen"},
-		{"ab--cd.com", "third and fourth position", "hyphen pair"},
-		{"under_score.com", "letters, digits and hyphens", "bad character"},
+		{"", "cannot be empty", "empty host", false},
+		{strings.Repeat("a.", 127) + "aa", "at most 253 characters", "host too long", false},
+		{label + ".com", "at most 63 characters", "label too long", false},
+		{"a..b.com", "empty label", "doubled dot", false},
+		{"-lead.com", "begin or end with a hyphen", "leading hyphen", false},
+		{"trail-.com", "begin or end with a hyphen", "trailing hyphen", false},
+		{"ab--cd.com", "third and fourth position", "hyphen pair", false},
+		{"under_score.com", "letters, digits and hyphens", "bad character", false},
+		{"exa mple.com", "hyphens and underscores", "dns name bad character", true},
 	}
 	seen := map[string]string{}
 	for _, c := range cases {
 		t.Run(c.why, func(t *testing.T) {
-			got, reason := classifyHost(c.in)
+			got, reason := classifyHost(c.in, c.dnsName)
 			if got != hostRejected {
 				t.Fatalf("classifyHost(%q) = %v, want hostRejected", c.in, got)
 			}
