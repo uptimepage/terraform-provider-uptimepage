@@ -39,25 +39,71 @@ type StatusPage struct {
 	PublicLocale         *string `json:"public_locale,omitempty"`
 	LogoURL              *string `json:"logo_url,omitempty"`
 	StatusURL            *string `json:"status_url,omitempty"`
+	// Nil until the page's access is first written.
+	Access *PageAccess `json:"access,omitempty"`
 }
 
+// PageAccess is who may open a page, read and written whole. Protected makes
+// it private; while it is false the server keeps the rest for next time.
+type PageAccess struct {
+	Protected bool             `json:"protected"`
+	Email     PageEmailAccess  `json:"email"`
+	Rules     []PageAccessRule `json:"rules"`
+}
+
+// PageEmailAccess is the emailed-code way in. Its `enabled` switch is left to
+// the server default: a private page cannot turn it off.
+type PageEmailAccess struct {
+	PasskeysEnabled bool `json:"passkeys_enabled"`
+	// Nil never asks a passkey viewer for a code again.
+	RecheckDays *int64 `json:"recheck_days"`
+	// Nil keeps a sign-in until sign-out.
+	SessionDays *int64 `json:"session_days"`
+}
+
+// PageAccessRule is one entry of the list: an address or a whole domain.
+type PageAccessRule struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+}
+
+const (
+	AccessRuleAddress = "address"
+	AccessRuleDomain  = "domain"
+)
+
+// PageAccessRecheckDays and PageAccessSessionDays mirror the API's choices.
+var (
+	PageAccessRecheckDays = []int64{30, 90, 365}
+	PageAccessSessionDays = []int64{7, 30, 90}
+)
+
+// MaxPageAccessRules is the API's cap on one page's list, and
+// MaxPageAccessAddressLen its cap on one address.
+const (
+	MaxPageAccessRules      = 500
+	MaxPageAccessAddressLen = 254
+)
+
 // NewStatusPage is the POST body. Branding is set via a follow-up PATCH, so only
-// identity + enabled travel here.
+// identity, enabled and access travel here.
 type NewStatusPage struct {
-	Slug    string `json:"slug"`
-	Name    string `json:"name"`
-	Enabled bool   `json:"enabled"`
+	Slug    string      `json:"slug"`
+	Name    string      `json:"name"`
+	Enabled bool        `json:"enabled"`
+	Access  *PageAccess `json:"access,omitempty"`
 }
 
 // StatusPageUpdate is the PATCH body, sent as full desired state. Branding is a
 // nested block that replaces the page's display branding wholesale. The
-// language is a partial field beside it: nil leaves the page's language as is.
+// language and access are partial fields beside it: nil leaves them as is.
 type StatusPageUpdate struct {
 	Name         string         `json:"name"`
 	Slug         string         `json:"slug"`
 	Enabled      bool           `json:"enabled"`
 	PublicLocale *string        `json:"public_locale,omitempty"`
 	Branding     StatusBranding `json:"branding"`
+	Access       *PageAccess    `json:"access,omitempty"`
 }
 
 // StatusBranding is the page's display branding, sent whole on every PATCH. A

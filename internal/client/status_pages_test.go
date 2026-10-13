@@ -104,6 +104,29 @@ func TestUpdateStatusPage_SendsAndDecodesLocale(t *testing.T) {
 	}
 }
 
+// The read shape the API answers for a private page, as written by its own
+// serializer.
+func TestGetStatusPage_DecodesAccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"p1","slug":"weber","name":"Autohaus Weber","enabled":true,` +
+			`"public_style":"default","show_powered_by":true,"public_hide_from_search":false,` +
+			`"access":{"protected":true,"email":{"enabled":true,"passkeys_enabled":false,` +
+			`"recheck_days":90,"session_days":null},"rules":[{"kind":"domain","value":"dealer.example"}]}}`))
+	}))
+	defer srv.Close()
+
+	got, err := New(srv.URL, "tok", "", srv.Client()).GetStatusPage(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("GetStatusPage: %v", err)
+	}
+	a := got.Access
+	if a == nil || !a.Protected || a.Email.PasskeysEnabled || a.Email.SessionDays != nil ||
+		a.Email.RecheckDays == nil || *a.Email.RecheckDays != 90 ||
+		len(a.Rules) != 1 || a.Rules[0] != (PageAccessRule{Kind: AccessRuleDomain, Value: "dealer.example"}) {
+		t.Errorf("access = %+v", a)
+	}
+}
+
 // A cleared website must travel as null, never be omitted, or the API keeps the
 // old link.
 func TestUpdateStatusPage_ClearedWebsiteMarshalsNull(t *testing.T) {

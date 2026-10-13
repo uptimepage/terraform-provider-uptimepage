@@ -80,7 +80,7 @@ var websiteURL = regexp.MustCompile(`(?i)^https?://[^/?#\s]+`)
 
 func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A public status page: its own subdomain slug, branding, and a " +
+		Description: "A status page: its own subdomain slug, branding, who can open it, and a " +
 			"curated set of monitors (added with uptimepage_status_page_component).",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -174,6 +174,7 @@ func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				Description:   "Live public URL of the page, or null when no public surface is mounted.",
 				PlanModifiers: []planmodifier.String{keepWhileSlugUnchanged()},
 			},
+			"access": pageAccessAttribute(),
 		},
 	}
 }
@@ -189,7 +190,10 @@ func (r *statusPageResource) Create(ctx context.Context, req resource.CreateRequ
 		resp.Diagnostics.AddError("Create status page failed", err.Error())
 		return
 	}
-	final, err := r.api.UpdateStatusPage(ctx, created.ID, plan.toUpdate())
+	// The create already wrote the access.
+	update := plan.toUpdate()
+	update.Access = nil
+	final, err := r.api.UpdateStatusPage(ctx, created.ID, update)
 	if err != nil {
 		// The page exists but branding didn't apply. Persist what we have so a
 		// re-apply reconciles via Update instead of re-creating into a slug clash.

@@ -12,3 +12,19 @@ resource "uptimepage_status_page" "public" {
   website_url      = "https://acme.example"
   hide_from_search = false
 }
+
+# Only the people on the list can open this one: anyone at the partner's
+# domain, and one outside contractor.
+resource "uptimepage_status_page" "partners" {
+  slug    = "acme-partners"
+  name    = "Acme Partner Status"
+  enabled = true
+
+  access = {
+    protected = true
+    email = {
+      session_days = 30
+    }
+    rules = ["partner.example", "k.lindner@example.org"]
+  }
+}

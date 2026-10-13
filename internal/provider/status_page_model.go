@@ -25,15 +25,19 @@ type statusPageModel struct {
 	Locale         types.String `tfsdk:"locale"`
 	LogoURL        types.String `tfsdk:"logo_url"`
 	StatusURL      types.String `tfsdk:"status_url"`
+	Access         types.Object `tfsdk:"access"`
 }
 
-// Create carries identity only, and always unpublished: branding arrives in the
-// follow-up PATCH, so publishing here would serve the page indexable before
-// hide_from_search lands — and leave it that way if that PATCH fails.
+// Create carries identity and access, and is always unpublished: branding
+// arrives in the follow-up PATCH, so publishing here would serve the page
+// indexable before hide_from_search lands — and leave it that way if that PATCH
+// fails. Access rides the create so a plan without private pages refuses it
+// before any page exists.
 func (m statusPageModel) toNew() client.NewStatusPage {
 	return client.NewStatusPage{
-		Slug: m.Slug.ValueString(),
-		Name: m.Name.ValueString(),
+		Slug:   m.Slug.ValueString(),
+		Name:   m.Name.ValueString(),
+		Access: pageAccessToWire(m.Access),
 	}
 }
 
@@ -52,6 +56,7 @@ func (m statusPageModel) toUpdate() client.StatusPageUpdate {
 			PublicHideFromSearch: optBool(m.HideFromSearch),
 			PublicWebsiteURL:     optString(m.WebsiteURL),
 		},
+		Access: pageAccessToWire(m.Access),
 	}
 }
 
@@ -74,6 +79,7 @@ func statusPageToModel(prior statusPageModel, p *client.StatusPage) statusPageMo
 		Locale:         fromOptString(p.PublicLocale),
 		LogoURL:        fromOptString(p.LogoURL),
 		StatusURL:      fromOptString(p.StatusURL),
+		Access:         pageAccessToModel(prior.Access, p.Access),
 	}
 }
 

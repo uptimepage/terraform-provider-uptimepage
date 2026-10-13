@@ -1,6 +1,6 @@
 # terraform-provider-uptimepage
 
-Terraform provider for [Uptimepage](https://uptimepage.dev/terraform-uptime-monitoring), which does uptime monitoring, status pages and on-call in one product. This provider manages monitors, notification channels, and public status pages as code against the `/api/v1` REST API. The [Terraform setup guide](https://uptimepage.dev/docs/terraform) covers tokens, organization scope, imports, and the hosted-service workflow.
+Terraform provider for [Uptimepage](https://uptimepage.dev/terraform-uptime-monitoring), which does uptime monitoring, status pages and on-call in one product. This provider manages monitors, notification channels, and status pages as code against the `/api/v1` REST API. The [Terraform setup guide](https://uptimepage.dev/docs/terraform) covers tokens, organization scope, imports, and the hosted-service workflow.
 
 ## Usage
 
@@ -60,7 +60,7 @@ API tokens are user-scoped, so every managed-resource request must also name an 
 |------|------|-------|
 | `uptimepage_target` | resource | Monitors. Check types: `http`, `tcp`, `ping`, `heartbeat`, `tls_cert`, `domain_expiry`, `dns`, `flow`, `manual`. The type is fixed after creation: changing it replaces the monitor. |
 | `uptimepage_notification_channel` | resource | `webhook`, `slack`, `telegram`, `discord`, `msteams`, `google_chat`, `mattermost`, `email`, `pagerduty`, `ntfy`, `gotify`, `pushover`, `whatsapp`, `sms`. |
-| `uptimepage_status_page` | resource | A public status page: slug, branding, theme. Owner-only. |
+| `uptimepage_status_page` | resource | A status page: slug, branding, theme, and who can open it. Owner-only. |
 | `uptimepage_status_page_component` | resource | Curates one monitor onto a page, with per-page overrides. |
 | `uptimepage_target` | data source | Look up a target by id. |
 | `uptimepage_heartbeat` | data source | The URL a heartbeat job reports to. Sensitive: holding it is enough to report the job healthy or failed. |
