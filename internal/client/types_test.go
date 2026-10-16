@@ -129,16 +129,16 @@ func TestCheckSpec_VariantsRoundTrip(t *testing.T) {
 		spec CheckSpec
 		keys []string
 	}{
-		"tcp": {CheckSpec{Type: CheckTypeTCP, TCP: &TCPCheck{Host: "db", Port: 5432, Timeout: 3000}},
-			[]string{"type", "host", "port", "timeout"}},
+		"tcp": {CheckSpec{Type: CheckTypeTCP, TCP: &TCPCheck{Host: "db", Port: 5432, Timeout: 3000, IPVersion: IPVersionIPv6}},
+			[]string{"type", "host", "port", "timeout", "ip_version"}},
 		"ping": {CheckSpec{Type: CheckTypePing, Ping: &PingCheck{Host: "gateway.example.com", Timeout: 3000}},
 			[]string{"type", "host", "timeout"}},
 		// max_runtime is omitted when unset: the API reads absent as "bounded
 		// by period+grace" and rejects a zero.
 		"heartbeat": {CheckSpec{Type: CheckTypeHeartbeat, Heartbeat: &HeartbeatCheck{Period: 300000, Grace: 60000}},
 			[]string{"type", "period", "grace"}},
-		"tls_cert": {CheckSpec{Type: CheckTypeTLSCert, TLSCert: &TLSCertCheck{Host: "x", Port: 443, WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
-			[]string{"type", "host", "port", "server_name", "warn_days", "critical_days", "timeout"}},
+		"tls_cert": {CheckSpec{Type: CheckTypeTLSCert, TLSCert: &TLSCertCheck{Host: "x", Port: 443, WarnDays: 30, CriticalDays: 7, Timeout: 5000, IPVersion: IPVersionIPv4}},
+			[]string{"type", "host", "port", "server_name", "warn_days", "critical_days", "timeout", "ip_version"}},
 		"domain_expiry": {CheckSpec{Type: CheckTypeDomainExpiry, DomainExpiry: &DomainExpiryCheck{Domain: "x.com", WarnDays: 30, CriticalDays: 7, Timeout: 5000}},
 			[]string{"type", "domain", "warn_days", "critical_days", "timeout"}},
 		"dns": {CheckSpec{Type: CheckTypeDNS, DNS: &DNSCheck{Domain: "x.com", RecordType: "A", Resolver: &resolver, Timeout: 5000}},

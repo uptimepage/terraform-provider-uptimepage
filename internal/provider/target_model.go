@@ -70,12 +70,14 @@ type httpCheckModel struct {
 	BearerToken          types.String        `tfsdk:"bearer_token"`
 	BearerTokenWo        types.String        `tfsdk:"bearer_token_wo"`
 	BearerTokenWoVersion types.Int64         `tfsdk:"bearer_token_wo_version"`
+	IPVersion            types.String        `tfsdk:"ip_version"`
 }
 
 type tcpCheckModel struct {
 	Host      types.String `tfsdk:"host"`
 	Port      types.Int64  `tfsdk:"port"`
 	TimeoutMs types.Int64  `tfsdk:"timeout_ms"`
+	IPVersion types.String `tfsdk:"ip_version"`
 }
 
 type pingCheckModel struct {
@@ -96,6 +98,7 @@ type tlsCertCheckModel struct {
 	WarnDays     types.Int64  `tfsdk:"warn_days"`
 	CriticalDays types.Int64  `tfsdk:"critical_days"`
 	TimeoutMs    types.Int64  `tfsdk:"timeout_ms"`
+	IPVersion    types.String `tfsdk:"ip_version"`
 }
 
 type domainExpiryModel struct {
@@ -294,9 +297,10 @@ func (c checkModel) toWire(ctx context.Context) (client.CheckSpec, diag.Diagnost
 			return out, missingBlock(kind)
 		}
 		out.TCP = &client.TCPCheck{
-			Host:    c.TCP.Host.ValueString(),
-			Port:    uint16(c.TCP.Port.ValueInt64()),
-			Timeout: uint64(c.TCP.TimeoutMs.ValueInt64()),
+			Host:      c.TCP.Host.ValueString(),
+			Port:      uint16(c.TCP.Port.ValueInt64()),
+			Timeout:   uint64(c.TCP.TimeoutMs.ValueInt64()),
+			IPVersion: ipVersionToWire(c.TCP.IPVersion),
 		}
 	case client.CheckTypePing:
 		if c.Ping == nil {
@@ -332,6 +336,7 @@ func (c checkModel) toWire(ctx context.Context) (client.CheckSpec, diag.Diagnost
 			WarnDays:     uint32(c.TLSCert.WarnDays.ValueInt64()),
 			CriticalDays: uint32(c.TLSCert.CriticalDays.ValueInt64()),
 			Timeout:      uint64(c.TLSCert.TimeoutMs.ValueInt64()),
+			IPVersion:    ipVersionToWire(c.TLSCert.IPVersion),
 		}
 	case client.CheckTypeDomainExpiry:
 		if c.DomainExpiry == nil {
@@ -423,6 +428,7 @@ func (h httpCheckModel) toWire(ctx context.Context) (*client.HTTPCheck, diag.Dia
 		Body:                 optString(h.Body),
 		VerifyTLS:            h.VerifyTLS.ValueBool(),
 		BearerToken:          optString(firstSet(h.BearerToken, h.BearerTokenWo)),
+		IPVersion:            ipVersionToWire(h.IPVersion),
 	}
 	if h.BasicAuth != nil {
 		pw := firstSet(h.BasicAuth.Password, h.BasicAuth.PasswordWo)
@@ -438,6 +444,23 @@ func firstSet(a, b types.String) types.String {
 		return a
 	}
 	return b
+}
+
+// ipVersionToWire leaves the default out of the request; see client.IPVersionAny.
+func ipVersionToWire(v types.String) string {
+	if v.IsNull() || v.IsUnknown() || v.ValueString() == client.IPVersionAny {
+		return ""
+	}
+	return v.ValueString()
+}
+
+// ipVersionFromWire reads an absent ip_version, from a server that predates
+// the field, as the default it behaves as.
+func ipVersionFromWire(v string) types.String {
+	if v == "" {
+		return types.StringValue(client.IPVersionAny)
+	}
+	return types.StringValue(v)
 }
 
 func missingBlock(kind string) diag.Diagnostics {
@@ -534,6 +557,7 @@ func checkToModel(ctx context.Context, prior checkModel, spec client.CheckSpec) 
 			Host:      types.StringValue(spec.TCP.Host),
 			Port:      types.Int64Value(int64(spec.TCP.Port)),
 			TimeoutMs: types.Int64Value(int64(spec.TCP.Timeout)),
+			IPVersion: ipVersionFromWire(spec.TCP.IPVersion),
 		}
 	case spec.Ping != nil:
 		out.Ping = &pingCheckModel{
@@ -557,6 +581,7 @@ func checkToModel(ctx context.Context, prior checkModel, spec client.CheckSpec) 
 			WarnDays:     types.Int64Value(int64(spec.TLSCert.WarnDays)),
 			CriticalDays: types.Int64Value(int64(spec.TLSCert.CriticalDays)),
 			TimeoutMs:    types.Int64Value(int64(spec.TLSCert.Timeout)),
+			IPVersion:    ipVersionFromWire(spec.TLSCert.IPVersion),
 		}
 	case spec.DomainExpiry != nil:
 		out.DomainExpiry = &domainExpiryModel{
@@ -676,6 +701,7 @@ func httpToModel(ctx context.Context, prior *httpCheckModel, h *client.HTTPCheck
 		// Secrets: the API redacts these on read, so trust prior state.
 		BasicAuth:   keepBasicAuth(priorBasic, h.BasicAuth),
 		BearerToken: keepSecret(priorBearer, h.BearerToken),
+		IPVersion:   ipVersionFromWire(h.IPVersion),
 	}
 	// Rotation triggers are ordinary config attrs, not part of the API payload;
 	// carry them through the read-back so state matches the plan.

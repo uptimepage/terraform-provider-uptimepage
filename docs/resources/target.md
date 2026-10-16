@@ -41,6 +41,22 @@ resource "uptimepage_target" "api" {
   }
 }
 
+# The same endpoint over IPv6 alone. By default a check takes whichever of
+# IPv6 and IPv4 connects first, so a broken AAAA record or IPv6 firewall goes
+# unnoticed while IPv4 works. Pin a family per target to watch each one.
+resource "uptimepage_target" "api_ipv6" {
+  name     = "api prod ipv6"
+  interval = 60
+
+  check = {
+    type = "http"
+    http = {
+      url        = "https://example.com/healthz"
+      ip_version = "ipv6"
+    }
+  }
+}
+
 # HTTP range matcher with basic auth. password_wo (Terraform 1.11+) never
 # reaches state; bump password_wo_version to rotate it. On older Terraform use
 # password instead, which persists to state.
@@ -353,6 +369,7 @@ Optional:
 - `expected_body_contains` (String) Substring the response body must contain.
 - `follow_redirects` (Boolean)
 - `headers` (Map of String) Request headers.
+- `ip_version` (String) Address family to dial: `any`, `ipv4` or `ipv6`. `any` connects over whichever of IPv6 and IPv4 answers first, so a broken one goes unnoticed; `ipv4` or `ipv6` checks only that family and fails when the host has no address in it. Create one target per family to watch both. A host written as an IP address can only use its own family.
 - `max_redirects` (Number)
 - `method` (String) HTTP method (uppercase).
 - `timeout_ms` (Number) Request timeout in milliseconds (100..60000).
@@ -418,6 +435,7 @@ Required:
 
 Optional:
 
+- `ip_version` (String) Address family to dial: `any`, `ipv4` or `ipv6`. `any` connects over whichever of IPv6 and IPv4 answers first, so a broken one goes unnoticed; `ipv4` or `ipv6` checks only that family and fails when the host has no address in it. Create one target per family to watch both. A host written as an IP address can only use its own family.
 - `timeout_ms` (Number) Timeout in milliseconds (100..60000).
 
 
@@ -433,6 +451,7 @@ Required:
 
 Optional:
 
+- `ip_version` (String) Address family to dial: `any`, `ipv4` or `ipv6`. `any` connects over whichever of IPv6 and IPv4 answers first, so a broken one goes unnoticed; `ipv4` or `ipv6` checks only that family and fails when the host has no address in it. Create one target per family to watch both. A host written as an IP address can only use its own family.
 - `server_name` (String) SNI to send if different from host.
 - `timeout_ms` (Number) Timeout in milliseconds (100..60000).
 

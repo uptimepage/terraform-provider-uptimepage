@@ -415,6 +415,139 @@ func TestDNSExpectedRecordsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestIPVersion_DefaultStaysOffTheWire(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		config types.String
+		wire   string
+	}{
+		{types.StringValue("any"), ""},
+		{types.StringNull(), ""},
+		{types.StringUnknown(), ""},
+		{types.StringValue("ipv4"), "ipv4"},
+		{types.StringValue("ipv6"), "ipv6"},
+	} {
+		checks := []checkModel{
+			{Type: types.StringValue(client.CheckTypeHTTP), HTTP: &httpCheckModel{
+				URL:            types.StringValue("https://example.com/"),
+				Method:         types.StringValue("GET"),
+				ExpectedStatus: expectedStatusModel{Kind: types.StringValue(client.StatusKindExact), Exact: types.Int64Value(200)},
+				Headers:        types.MapNull(types.StringType),
+				IPVersion:      tc.config,
+			}},
+			{Type: types.StringValue(client.CheckTypeTCP), TCP: &tcpCheckModel{
+				Host:      types.StringValue("db.example.com"),
+				Port:      types.Int64Value(5432),
+				TimeoutMs: types.Int64Value(3000),
+				IPVersion: tc.config,
+			}},
+			{Type: types.StringValue(client.CheckTypeTLSCert), TLSCert: &tlsCertCheckModel{
+				Host:      types.StringValue("example.com"),
+				Port:      types.Int64Value(443),
+				IPVersion: tc.config,
+			}},
+		}
+		for _, c := range checks {
+			wire, d := c.toWire(ctx)
+			if d.HasError() {
+				t.Fatalf("%s %v: toWire: %v", c.Type, tc.config, d)
+			}
+			body, err := json.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sent struct {
+				IPVersion *string `json:"ip_version"`
+			}
+			if err := json.Unmarshal(body, &sent); err != nil {
+				t.Fatal(err)
+			}
+			switch {
+			case tc.wire == "" && sent.IPVersion != nil:
+				t.Errorf("%s %v: default sent: %s", c.Type, tc.config, body)
+			case tc.wire != "" && (sent.IPVersion == nil || *sent.IPVersion != tc.wire):
+				t.Errorf("%s %v: body %s, want ip_version %q", c.Type, tc.config, body, tc.wire)
+			}
+		}
+	}
+}
+
+func TestValidateIPVersionAgainstALiteralHost(t *testing.T) {
+	s := types.StringValue
+	for _, c := range []struct {
+		host    string
+		version types.String
+		wantErr bool
+	}{
+		{"203.0.113.5", s("ipv6"), true},
+		{"203.0.113.5", s("ipv4"), false},
+		{"203.0.113.5", s("any"), false},
+		{"2001:db8::1", s("ipv4"), true},
+		{"[2001:db8::1]", s("ipv4"), true},
+		{"2001:db8::1", s("ipv6"), false},
+		{"::ffff:203.0.113.5", s("ipv6"), true},
+		{"db.example.com", s("ipv6"), false},
+		{"203.0.113.5", types.StringUnknown(), false},
+	} {
+		var d diag.Diagnostics
+		validateIPVersion(path.Root("check").AtName("tcp"), c.host, c.version, &d)
+		if got := d.HasError(); got != c.wantErr {
+			t.Errorf("%s with %v: error=%v, want %v (%v)", c.host, c.version, got, c.wantErr, d)
+			continue
+		}
+		if c.wantErr {
+			wp, ok := d.Errors()[0].(diag.DiagnosticWithPath)
+			if !ok || wp.Path().String() != "check.tcp.ip_version" {
+				t.Errorf("%s: error does not point at check.tcp.ip_version: %v", c.host, d.Errors()[0])
+			}
+		}
+	}
+
+	http := targetModel{
+		Name:     types.StringValue("x"),
+		Interval: types.Int64Value(60),
+		Check: checkModel{Type: types.StringValue(client.CheckTypeHTTP), HTTP: &httpCheckModel{
+			URL:       types.StringValue("https://[2001:db8::1]/health"),
+			IPVersion: types.StringValue("ipv4"),
+		}},
+		Regions: types.SetNull(types.StringType),
+	}
+	var d diag.Diagnostics
+	validateTargetConfig(context.Background(), http, &d)
+	if !d.HasError() {
+		t.Error("an IPv6 URL pinned to ipv4 planned clean")
+	}
+}
+
+func TestIPVersion_ReadsBackOnEveryDialingKind(t *testing.T) {
+	ctx := context.Background()
+	for wire, want := range map[string]string{"": "any", "any": "any", "ipv6": "ipv6"} {
+		specs := []client.CheckSpec{
+			{Type: client.CheckTypeHTTP, HTTP: &client.HTTPCheck{URL: "https://example.com/", Method: "GET", Headers: map[string]string{}, ExpectedStatus: client.ExpectedStatus{Kind: client.StatusKindExact, Exact: 200}, IPVersion: wire}},
+			{Type: client.CheckTypeTCP, TCP: &client.TCPCheck{Host: "db.example.com", Port: 5432, IPVersion: wire}},
+			{Type: client.CheckTypeTLSCert, TLSCert: &client.TLSCertCheck{Host: "example.com", Port: 443, IPVersion: wire}},
+		}
+		for _, spec := range specs {
+			m, d := checkToModel(ctx, checkModel{}, spec)
+			if d.HasError() {
+				t.Fatalf("%s: %v", spec.Type, d)
+			}
+			var got types.String
+			switch {
+			case m.HTTP != nil:
+				got = m.HTTP.IPVersion
+			case m.TCP != nil:
+				got = m.TCP.IPVersion
+			case m.TLSCert != nil:
+				got = m.TLSCert.IPVersion
+			}
+			if got.ValueString() != want {
+				t.Errorf("%s with %q: read %v, want %q", spec.Type, wire, got, want)
+			}
+		}
+	}
+}
+
 func TestCheckToWire_MissingBlockErrors(t *testing.T) {
 	ctx := context.Background()
 	c := checkModel{Type: types.StringValue(client.CheckTypeTCP)} // no tcp block

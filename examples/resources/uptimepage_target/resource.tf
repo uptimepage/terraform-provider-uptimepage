@@ -26,6 +26,22 @@ resource "uptimepage_target" "api" {
   }
 }
 
+# The same endpoint over IPv6 alone. By default a check takes whichever of
+# IPv6 and IPv4 connects first, so a broken AAAA record or IPv6 firewall goes
+# unnoticed while IPv4 works. Pin a family per target to watch each one.
+resource "uptimepage_target" "api_ipv6" {
+  name     = "api prod ipv6"
+  interval = 60
+
+  check = {
+    type = "http"
+    http = {
+      url        = "https://example.com/healthz"
+      ip_version = "ipv6"
+    }
+  }
+}
+
 # HTTP range matcher with basic auth. password_wo (Terraform 1.11+) never
 # reaches state; bump password_wo_version to rotate it. On older Terraform use
 # password instead, which persists to state.

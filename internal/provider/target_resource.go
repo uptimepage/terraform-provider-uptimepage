@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/url"
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
@@ -347,6 +348,19 @@ func httpCheckAttributes() map[string]schema.Attribute {
 			Validators: []validator.Int64{int64validator.AlsoRequires(
 				path.MatchRelative().AtParent().AtName("bearer_token_wo"))},
 		},
+		"ip_version": ipVersionAttribute(),
+	}
+}
+
+func ipVersionAttribute() schema.Attribute {
+	return schema.StringAttribute{
+		Optional: true,
+		Computed: true,
+		Default:  stringdefault.StaticString(client.IPVersionAny),
+		Description: "Address family to dial: `any`, `ipv4` or `ipv6`. `any` connects over whichever of IPv6 and IPv4 answers first, so a broken one goes unnoticed; " +
+			"`ipv4` or `ipv6` checks only that family and fails when the host has no address in it. Create one target per family to watch both. " +
+			"A host written as an IP address can only use its own family.",
+		Validators: []validator.String{stringvalidator.OneOf(client.IPVersionAny, client.IPVersionIPv4, client.IPVersionIPv6)},
 	}
 }
 
@@ -396,6 +410,7 @@ func tcpCheckAttribute() schema.Attribute {
 			"host":       hostAttribute("Hostname or IP to connect to.", canonicalHostValidator("check.host")),
 			"port":       portAttribute(),
 			"timeout_ms": timeoutMsAttribute(),
+			"ip_version": ipVersionAttribute(),
 		},
 	}
 }
@@ -478,6 +493,7 @@ func tlsCertCheckAttribute() schema.Attribute {
 			"warn_days":     expiryDaysAttribute("Warn when the cert expires within this many days."),
 			"critical_days": expiryDaysAttribute("Fail when the cert expires within this many days."),
 			"timeout_ms":    timeoutMsAttribute(),
+			"ip_version":    ipVersionAttribute(),
 		},
 	}
 }
@@ -797,10 +813,22 @@ func validateTargetConfig(ctx context.Context, cfg targetModel, diags *diag.Diag
 		validateManualSchedule(cfg.Interval, cfg.AlertConfirmations, diags)
 		rejectRegions(cfg.Regions, "A manual monitor is not probed from regions",
 			"Nothing probes a manual monitor, so the API rejects regions on one.", diags)
+	case client.CheckTypeHTTP:
+		if h := cfg.Check.HTTP; h != nil && !h.URL.IsNull() && !h.URL.IsUnknown() {
+			if u, err := url.Parse(h.URL.ValueString()); err == nil {
+				validateIPVersion(path.Root("check").AtName("http"), u.Hostname(), h.IPVersion, diags)
+			}
+		}
+	case client.CheckTypeTCP:
+		if c := cfg.Check.TCP; c != nil && !c.Host.IsUnknown() {
+			validateIPVersion(path.Root("check").AtName("tcp"), c.Host.ValueString(), c.IPVersion, diags)
+		}
 	case client.CheckTypeTLSCert:
-		if cfg.Check.TLSCert != nil {
-			validateExpiryDays(path.Root("check").AtName("tls_cert"),
-				cfg.Check.TLSCert.WarnDays, cfg.Check.TLSCert.CriticalDays, diags)
+		if c := cfg.Check.TLSCert; c != nil {
+			validateExpiryDays(path.Root("check").AtName("tls_cert"), c.WarnDays, c.CriticalDays, diags)
+			if !c.Host.IsUnknown() {
+				validateIPVersion(path.Root("check").AtName("tls_cert"), c.Host.ValueString(), c.IPVersion, diags)
+			}
 		}
 	case client.CheckTypeDomainExpiry:
 		if cfg.Check.DomainExpiry != nil {
@@ -941,6 +969,30 @@ func validateDNSAddress(dns *dnsCheckModel, diags *diag.Diagnostics) {
 		"Address on a non-PTR lookup",
 		fmt.Sprintf("%s records are looked up by name, not by address; only PTR takes an IP. "+
 			"The API rejects this.", recordType))
+}
+
+// validateIPVersion refuses a pinned family a literal address cannot use,
+// which the API rejects. An IPv4-mapped address counts as IPv4, as it does
+// there.
+func validateIPVersion(block path.Path, host string, version types.String, diags *diag.Diagnostics) {
+	if version.IsNull() || version.IsUnknown() || version.ValueString() == client.IPVersionAny {
+		return
+	}
+	ip := net.ParseIP(strings.TrimSuffix(strings.TrimPrefix(host, "["), "]"))
+	if ip == nil {
+		return
+	}
+	own, label := client.IPVersionIPv6, "IPv6"
+	if ip.To4() != nil {
+		own, label = client.IPVersionIPv4, "IPv4"
+	}
+	if version.ValueString() == own {
+		return
+	}
+	diags.AddAttributeError(block.AtName("ip_version"),
+		"IP version does not fit the address",
+		fmt.Sprintf("%s is an %s address, so ip_version must be %q or %q. The API rejects this.",
+			ip, label, client.IPVersionAny, own))
 }
 
 // validateFlowSteps enforces that each step carries the fields its op needs, so

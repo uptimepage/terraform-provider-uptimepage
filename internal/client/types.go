@@ -141,13 +141,15 @@ type HTTPCheck struct {
 	VerifyTLS            bool              `json:"verify_tls"`
 	BasicAuth            *[2]string        `json:"basic_auth"`   // ["user","pass"]
 	BearerToken          *string           `json:"bearer_token"` // "***" on read if set
+	IPVersion            string            `json:"ip_version,omitempty"`
 }
 
 // TCPCheck is the tcp variant: a connect probe to host:port.
 type TCPCheck struct {
-	Host    string `json:"host"`
-	Port    uint16 `json:"port"`
-	Timeout uint64 `json:"timeout"` // milliseconds
+	Host      string `json:"host"`
+	Port      uint16 `json:"port"`
+	Timeout   uint64 `json:"timeout"` // milliseconds
+	IPVersion string `json:"ip_version,omitempty"`
 }
 
 // PingCheck is the ping variant: an ICMP echo probe to a host.
@@ -173,6 +175,7 @@ type TLSCertCheck struct {
 	WarnDays     uint32  `json:"warn_days"`
 	CriticalDays uint32  `json:"critical_days"`
 	Timeout      uint64  `json:"timeout"` // milliseconds
+	IPVersion    string  `json:"ip_version,omitempty"`
 }
 
 // DomainExpiryCheck warns/fails as a domain registration nears expiry.
@@ -317,6 +320,15 @@ const (
 	// CheckTypeManual has no payload: its state is whatever an operator last
 	// set, which is not configuration.
 	CheckTypeManual = "manual"
+)
+
+// The address family an http, tcp or tls_cert check dials. IPVersionAny is the
+// API default and is sent as an absent ip_version, so a server that predates
+// the field, which refuses the key, still accepts the check.
+const (
+	IPVersionAny  = "any"
+	IPVersionIPv4 = "ipv4"
+	IPVersionIPv6 = "ipv6"
 )
 
 func (c CheckSpec) MarshalJSON() ([]byte, error) {
