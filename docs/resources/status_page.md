@@ -36,11 +36,34 @@ resource "uptimepage_status_page" "partners" {
   enabled = true
 
   access = {
+    protected    = true
+    session_days = 30
+    rules        = ["partner.example", "k.lindner@example.org"]
+  }
+}
+
+# One shared password instead of a list. It never reaches plan or state, so
+# Terraform cannot show it later: keep it where the people who need it get it
+# from, and bump value_wo_version to set a new one.
+variable "dealer_password" {
+  type      = string
+  ephemeral = true
+  sensitive = true
+}
+
+resource "uptimepage_status_page" "dealer" {
+  slug    = "acme-dealer"
+  name    = "Acme Dealer Status"
+  enabled = true
+
+  access = {
     protected = true
-    email = {
-      session_days = 30
+    email     = { enabled = false }
+    password = {
+      enabled          = true
+      value_wo         = var.dealer_password
+      value_wo_version = 1
     }
-    rules = ["partner.example", "k.lindner@example.org"]
   }
 }
 ```
@@ -56,7 +79,7 @@ resource "uptimepage_status_page" "partners" {
 ### Optional
 
 - `about` (String) Public 'about' blurb shown on the page.
-- `access` (Attributes) Who can open the page. With `protected = true` only the people `rules` names can: anyone else gets a sign-in screen, and a listed person signs in with a code emailed to them. Making a page private removes its webhook subscribers and the email subscribers the list does not cover, and needs a plan with private pages and a server that has them; opening one works on any plan. Omit to manage access in the console instead: the provider then neither reads nor changes it, and removing it leaves the page's access as it is, so set `protected = false` to open the page to everyone again. Who signed in, and blocking them, stay in the console. (see [below for nested schema](#nestedatt--access))
+- `access` (Attributes) Who can open the page. With `protected = true` only people a way in lets through can: the addresses and domains `rules` names, by a code emailed to them, or anyone with the page password. Anyone else gets a sign-in screen. Making a page private removes its webhook subscribers and the email subscribers no way in covers, and needs a plan with private pages and a server that has them; opening one works on any plan. Omit to manage access in the console instead: the provider then neither reads nor changes it, and removing it leaves the page's access as it is, so set `protected = false` to open the page to everyone again. Who signed in, and blocking them, stay in the console. (see [below for nested schema](#nestedatt--access))
 - `brand_color` (String) Accent color as a 6-digit hex like `#3b82f6`. Omit to choose the color in the console instead; a new page uses the configured brand color. Removing it keeps the color it set; clear it in the console to go back to the configured one.
 - `display_name` (String) Public header name. Falls back to the org name when unset.
 - `enabled` (Boolean) Whether the page is published (publicly reachable).
@@ -77,21 +100,36 @@ resource "uptimepage_status_page" "partners" {
 
 Required:
 
-- `protected` (Boolean) Only the people `rules` names can open the page. False opens it to everyone, and the list stays stored as `rules` gives it, for next time.
-- `rules` (Set of String) Who can open it, up to 500: an address such as `anna@example.com`, or a domain such as `example.com` for every address there. Written in lower case, an internationalised domain in its `xn--` form. `[]` empties the list.
+- `protected` (Boolean) Only people a way in lets through can open the page. False opens it to everyone and keeps the `rules` and password this block gives for next time; the block is still sent whole.
 
 Optional:
 
 - `email` (Attributes) The emailed sign-in code, and the passkeys that shortcut it. (see [below for nested schema](#nestedatt--access--email))
+- `password` (Attributes) One password shared with everyone who should read the page. It is stored as a hash and never read back. Omit to keep the page password off. (see [below for nested schema](#nestedatt--access--password))
+- `rules` (Set of String) Who can get an email code, up to 500: an address such as `anna@example.com`, or a domain such as `example.com` for every address there. Written in lower case, an internationalised domain in its `xn--` form. Omitted or `[]` empties the list.
+- `session_days` (Number) Keep a sign-in, by email or password, for 7, 30 or 90 days. Omit to keep it until sign-out, or until the way in it came through closes. Lived under `email` before 0.18.0.
 
 <a id="nestedatt--access--email"></a>
 ### Nested Schema for `access.email`
 
 Optional:
 
+- `enabled` (Boolean) The people `rules` names can sign in with a code emailed to them.
 - `passkeys_enabled` (Boolean) Let a viewer save a passkey after an email sign-in and use it next time.
 - `recheck_days` (Number) Ask a passkey viewer for an email code again once they last proved their address longer ago than this: 30, 90 or 365 days. Omit to never ask.
-- `session_days` (Number) Keep a sign-in for 7, 30 or 90 days. Omit to keep it until the viewer signs out, is blocked, or the list stops covering them.
+
+
+<a id="nestedatt--access--password"></a>
+### Nested Schema for `access.password`
+
+Required:
+
+- `enabled` (Boolean) Anyone with the password can open the page. False signs out everyone who came in with it and keeps the stored password, so turning it on again brings the same one back.
+
+Optional:
+
+- `value_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) The password, 1 to 128 characters, kept as written (Terraform 1.11+): never in plan or state. Sent on create, when value_wo_version first appears and whenever it changes; each send is a new password that signs out every device that used the old one, so leave it out to keep a password set in the console. Read it from an ephemeral variable or resource; Terraform keeps no copy to show later, so the people who need it must get it from where it came from.
+- `value_wo_version` (Number) Change trigger for value_wo. The password itself never diffs, so bump this to set a new one.
 
 ## Import
 

@@ -31,6 +31,7 @@ var (
 	_ resource.Resource                = (*statusPageResource)(nil)
 	_ resource.ResourceWithConfigure   = (*statusPageResource)(nil)
 	_ resource.ResourceWithImportState = (*statusPageResource)(nil)
+	_ resource.ResourceWithModifyPlan  = (*statusPageResource)(nil)
 )
 
 type statusPageResource struct {
@@ -180,11 +181,13 @@ func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest,
 }
 
 func (r *statusPageResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan statusPageModel
+	var plan, cfg statusPageModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	graftPagePassword(&plan, cfg, true)
 	created, err := r.api.CreateStatusPage(ctx, plan.toNew())
 	if err != nil {
 		resp.Diagnostics.AddError("Create status page failed", err.Error())
@@ -223,11 +226,14 @@ func (r *statusPageResource) Read(ctx context.Context, req resource.ReadRequest,
 }
 
 func (r *statusPageResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan statusPageModel
+	var plan, state, cfg statusPageModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	graftPagePassword(&plan, cfg, pagePasswordRotated(plan.Access, state.Access))
 	updated, err := r.api.UpdateStatusPage(ctx, plan.ID.ValueString(), plan.toUpdate())
 	if err != nil {
 		resp.Diagnostics.AddError("Update status page failed", err.Error())
@@ -245,6 +251,20 @@ func (r *statusPageResource) Delete(ctx context.Context, req resource.DeleteRequ
 	if err := r.api.DeleteStatusPage(ctx, state.ID.ValueString()); err != nil && !client.IsNotFound(err) {
 		resp.Diagnostics.AddError("Delete status page failed", err.Error())
 	}
+}
+
+// ModifyPlan refuses at plan what the API refuses at apply: a new page has no
+// stored password for `password.enabled` to turn on.
+func (r *statusPageResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if !req.State.Raw.IsNull() || req.Plan.Raw.IsNull() {
+		return
+	}
+	var cfg statusPageModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &cfg)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(newPagePasswordNeedsValue(cfg.Access)...)
 }
 
 func (r *statusPageResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

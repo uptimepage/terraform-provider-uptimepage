@@ -46,19 +46,28 @@ type StatusPage struct {
 // PageAccess is who may open a page, read and written whole. Protected makes
 // it private; while it is false the server keeps the rest for next time.
 type PageAccess struct {
-	Protected bool             `json:"protected"`
-	Email     PageEmailAccess  `json:"email"`
-	Rules     []PageAccessRule `json:"rules"`
+	Protected bool `json:"protected"`
+	// For email and password sign-ins alike. Nil keeps one until sign-out.
+	SessionDays *int64             `json:"session_days"`
+	Email       PageEmailAccess    `json:"email"`
+	Password    PagePasswordAccess `json:"password"`
+	Rules       []PageAccessRule   `json:"rules"`
 }
 
-// PageEmailAccess is the emailed-code way in. Its `enabled` switch is left to
-// the server default: a private page cannot turn it off.
+// PageEmailAccess is the emailed-code way in.
 type PageEmailAccess struct {
+	Enabled         bool `json:"enabled"`
 	PasskeysEnabled bool `json:"passkeys_enabled"`
 	// Nil never asks a passkey viewer for a code again.
 	RecheckDays *int64 `json:"recheck_days"`
-	// Nil keeps a sign-in until sign-out.
-	SessionDays *int64 `json:"session_days"`
+}
+
+// PagePasswordAccess is the shared page password way in. The server stores a
+// hash and never returns the password; Value goes out only to set or change
+// it, since every new value signs out everyone who used the old one.
+type PagePasswordAccess struct {
+	Enabled bool    `json:"enabled"`
+	Value   *string `json:"value,omitempty"`
 }
 
 // PageAccessRule is one entry of the list: an address or a whole domain.
@@ -78,11 +87,13 @@ var (
 	PageAccessSessionDays = []int64{7, 30, 90}
 )
 
-// MaxPageAccessRules is the API's cap on one page's list, and
-// MaxPageAccessAddressLen its cap on one address.
+// MaxPageAccessRules is the API's cap on one page's list,
+// MaxPageAccessAddressLen its cap on one address, and MaxPagePasswordChars
+// its cap on the page password.
 const (
 	MaxPageAccessRules      = 500
 	MaxPageAccessAddressLen = 254
+	MaxPagePasswordChars    = 128
 )
 
 // NewStatusPage is the POST body. Branding is set via a follow-up PATCH, so only

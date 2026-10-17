@@ -114,6 +114,12 @@ The target check secrets also come as [write-only arguments](https://developer.h
 - `check.http.basic_auth.password_wo` + `password_wo_version`
 - `check.http.bearer_token_wo` + `bearer_token_wo_version`
 
+A status page's shared password exists only in write-only form, since the API stores a hash and never returns it:
+
+- `uptimepage_status_page` → `access.password.value_wo` + `value_wo_version`
+
+It is sent on create, when `value_wo_version` first appears, and whenever it changes, and each send is a new password that signs out every device that used the old one. When adopting a page whose password was set in the console, leave `value_wo` out to keep it.
+
 Because the value never touches state, Terraform cannot diff it — bump the paired `*_wo_version` to rotate the secret. Forgetting the bump is silent: apply succeeds with no diff and the new value is not sent. The classic in-state attributes remain available for older Terraform; setting both variants of the same secret is a validation error.
 
 ## Development

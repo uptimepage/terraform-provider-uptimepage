@@ -21,10 +21,33 @@ resource "uptimepage_status_page" "partners" {
   enabled = true
 
   access = {
+    protected    = true
+    session_days = 30
+    rules        = ["partner.example", "k.lindner@example.org"]
+  }
+}
+
+# One shared password instead of a list. It never reaches plan or state, so
+# Terraform cannot show it later: keep it where the people who need it get it
+# from, and bump value_wo_version to set a new one.
+variable "dealer_password" {
+  type      = string
+  ephemeral = true
+  sensitive = true
+}
+
+resource "uptimepage_status_page" "dealer" {
+  slug    = "acme-dealer"
+  name    = "Acme Dealer Status"
+  enabled = true
+
+  access = {
     protected = true
-    email = {
-      session_days = 30
+    email     = { enabled = false }
+    password = {
+      enabled          = true
+      value_wo         = var.dealer_password
+      value_wo_version = 1
     }
-    rules = ["partner.example", "k.lindner@example.org"]
   }
 }

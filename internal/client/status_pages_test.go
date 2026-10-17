@@ -110,8 +110,9 @@ func TestGetStatusPage_DecodesAccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"id":"p1","slug":"weber","name":"Autohaus Weber","enabled":true,` +
 			`"public_style":"default","show_powered_by":true,"public_hide_from_search":false,` +
-			`"access":{"protected":true,"email":{"enabled":true,"passkeys_enabled":false,` +
-			`"recheck_days":90,"session_days":null},"rules":[{"kind":"domain","value":"dealer.example"}]}}`))
+			`"access":{"protected":true,"session_days":30,"email":{"enabled":false,"passkeys_enabled":false,` +
+			`"recheck_days":90},"password":{"enabled":true},` +
+			`"rules":[{"kind":"domain","value":"dealer.example"}]}}`))
 	}))
 	defer srv.Close()
 
@@ -120,7 +121,8 @@ func TestGetStatusPage_DecodesAccess(t *testing.T) {
 		t.Fatalf("GetStatusPage: %v", err)
 	}
 	a := got.Access
-	if a == nil || !a.Protected || a.Email.PasskeysEnabled || a.Email.SessionDays != nil ||
+	if a == nil || !a.Protected || a.Email.Enabled || a.Email.PasskeysEnabled ||
+		a.SessionDays == nil || *a.SessionDays != 30 || !a.Password.Enabled || a.Password.Value != nil ||
 		a.Email.RecheckDays == nil || *a.Email.RecheckDays != 90 ||
 		len(a.Rules) != 1 || a.Rules[0] != (PageAccessRule{Kind: AccessRuleDomain, Value: "dealer.example"}) {
 		t.Errorf("access = %+v", a)
