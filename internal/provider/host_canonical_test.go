@@ -133,7 +133,7 @@ func TestDNSLengthLimits(t *testing.T) {
 }
 
 // dnsNameCases mirrors the API's DNS query name corpus. The host corpus holds
-// for DNS names too, except that an underscore is allowed.
+// for DNS names too, except that an underscore and a leftmost * are allowed.
 var dnsNameCases = []struct {
 	in     string
 	want   hostVerdict
@@ -149,6 +149,16 @@ var dnsNameCases = []struct {
 	{"exa mple.com", hostRejected, ""},
 	{strings.Repeat("a", 64) + ".example.com", hostRejected, ""},
 	{strings.Repeat(strings.Repeat("a", 63)+".", 3) + strings.Repeat("a", 62), hostRejected, ""},
+	{"*.example.com", hostCanonical, "*.example.com"},
+	{"*.Example.COM.", hostRewritten, "*.example.com"},
+	{"*._tcp.example.com", hostCanonical, "*._tcp.example.com"},
+	{"*." + strings.Repeat(strings.Repeat("a", 63)+".", 3) + strings.Repeat("a", 59), hostCanonical, ""},
+	{"*." + strings.Repeat(strings.Repeat("a", 63)+".", 3) + strings.Repeat("a", 60), hostRejected, ""},
+	{"a.*.example.com", hostRejected, ""},
+	{"*a.example.com", hostRejected, ""},
+	{"*.*.example.com", hostRejected, ""},
+	{"*", hostRejected, ""},
+	{"*.", hostRejected, ""},
 }
 
 func TestClassifyDNSNameMatchesTheAPICorpus(t *testing.T) {
@@ -314,6 +324,8 @@ func TestEachRejectionRuleExplainsItself(t *testing.T) {
 		{"ab--cd.com", "third and fourth position", "hyphen pair", false},
 		{"under_score.com", "letters, digits and hyphens", "bad character", false},
 		{"exa mple.com", "hyphens and underscores", "dns name bad character", true},
+		{"a.*.example.com", "whole first label", "misplaced wildcard", true},
+		{"*", "longer name", "bare wildcard", true},
 	}
 	seen := map[string]string{}
 	for _, c := range cases {

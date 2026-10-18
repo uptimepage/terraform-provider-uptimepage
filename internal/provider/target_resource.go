@@ -516,7 +516,7 @@ func dnsCheckAttribute() schema.Attribute {
 		Optional:    true,
 		Description: "DNS resolution check (when type = dns).",
 		Attributes: map[string]schema.Attribute{
-			"domain": hostAttribute("Name to resolve (FQDN). Underscore labels such as `_dmarc` are allowed. A PTR lookup also takes an IP address.", canonicalDNSNameValidator("check.domain")),
+			"domain": hostAttribute("Name to resolve (FQDN). Underscore labels such as `_dmarc` are allowed, and so is a leftmost `*` label, which queries the wildcard record. A PTR lookup also takes an IP address.", canonicalDNSNameValidator("check.domain")),
 			"record_type": schema.StringAttribute{
 				Required:    true,
 				Description: "DNS record type.",

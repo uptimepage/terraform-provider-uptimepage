@@ -49,8 +49,8 @@ const (
 // second value is the form the API would store, or for hostRejected the rule
 // that was broken, so the message can describe the actual failure. dnsName
 // applies the rule the API keeps for a DNS query name, which also allows the
-// underscore: _dmarc.example.com is an ordinary name to resolve but not a host
-// to connect to.
+// underscore and a leftmost * label: _dmarc.example.com and *.example.com are
+// ordinary names to resolve but not hosts to connect to.
 func classifyHost(raw string, dnsName bool) (hostVerdict, string) {
 	// Brackets come off first and unconditionally, matching the API: a
 	// bracketed pair is stripped whether or not what it wraps is an IP, so
@@ -124,7 +124,11 @@ func asciiDomainProblem(host string, dnsName bool) string {
 	case len(host) > 253:
 		return fmt.Sprintf("a host may be at most 253 characters, this one is %d", len(host))
 	}
-	for _, label := range strings.Split(host, ".") {
+	labels := strings.Split(host, ".")
+	if dnsName && len(labels) > 1 && labels[0] == "*" {
+		labels = labels[1:]
+	}
+	for _, label := range labels {
 		switch {
 		case len(label) == 0:
 			return "a host cannot hold an empty label, so no leading or doubled dot"
@@ -142,6 +146,9 @@ func asciiDomainProblem(host string, dnsName bool) string {
 			ldh := c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-'
 			if ldh || dnsName && c == '_' {
 				continue
+			}
+			if dnsName && c == '*' {
+				return "a * may only be the whole first label of a longer name, as in *.example.com"
 			}
 			allowed := "letters, digits and hyphens"
 			if dnsName {

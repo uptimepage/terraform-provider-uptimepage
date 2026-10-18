@@ -283,7 +283,7 @@ Optional:
 
 Required:
 
-- `domain` (String) Name to resolve (FQDN). Underscore labels such as `_dmarc` are allowed. A PTR lookup also takes an IP address. Lowercase, no trailing dot, punycode for non-ASCII.
+- `domain` (String) Name to resolve (FQDN). Underscore labels such as `_dmarc` are allowed, and so is a leftmost `*` label, which queries the wildcard record. A PTR lookup also takes an IP address. Lowercase, no trailing dot, punycode for non-ASCII.
 - `record_type` (String) DNS record type.
 
 Optional:
