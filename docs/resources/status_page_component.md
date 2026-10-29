@@ -3,12 +3,12 @@
 page_title: "uptimepage_status_page_component Resource - uptimepage"
 subcategory: ""
 description: |-
-  Curates one monitor onto a status page, with optional per-page overrides. Changing the page or the target replaces the resource.
+  Curates one monitor onto a status page, with optional per-page overrides. Changing the page or the target replaces the resource. A monitor an uptimepage_status_page_section shows is already on the page: this resource then adopts its row and manages only its settings, and destroying it clears them and leaves the monitor on the page.
 ---
 
 # uptimepage_status_page_component (Resource)
 
-Curates one monitor onto a status page, with optional per-page overrides. Changing the page or the target replaces the resource.
+Curates one monitor onto a status page, with optional per-page overrides. Changing the page or the target replaces the resource. A monitor an uptimepage_status_page_section shows is already on the page: this resource then adopts its row and manages only its settings, and destroying it clears them and leaves the monitor on the page.
 
 ## Example Usage
 
@@ -52,14 +52,15 @@ resource "uptimepage_status_page_component" "api" {
 ### Optional
 
 - `public_description` (String) Per-page description shown under the component.
-- `public_group` (String) Group heading the component renders under.
+- `public_group` (String) Group heading the component renders under. A section member renders under its section's heading instead.
 - `public_name` (String) Per-page display name. Falls back to the monitor name when unset.
-- `sort_order` (Number) Order within the group (ascending).
+- `sort_order` (Number) Order within the group (ascending). Left out, a new component takes 0 and a section member keeps its place; removing it later keeps the order it has.
 
 ### Read-Only
 
 - `id` (String) Composite id, `status_page_id:target_id`.
 - `monitor_name` (String) The monitor's operator-side name (read-only).
+- `section_id` (String) The section that shows this monitor through its group, or null (read-only).
 
 ## Import
 

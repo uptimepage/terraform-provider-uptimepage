@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -255,5 +256,94 @@ func TestListComponents_DecodesArray(t *testing.T) {
 	}
 	if got[0].PublicDescription != nil {
 		t.Errorf("public_description = %v, want nil", got[0].PublicDescription)
+	}
+}
+
+func TestListComponents_DecodesSectionID(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[{"target_id":"t1","section_id":"s1","monitor_name":"NS","sort_order":0},{"target_id":"t2","section_id":null,"monitor_name":"API","sort_order":1}]`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", "", srv.Client())
+	got, err := c.ListComponents(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("ListComponents: %v", err)
+	}
+	if got[0].SectionID == nil || *got[0].SectionID != "s1" || got[1].SectionID != nil {
+		t.Errorf("section ids = %v, %v", got[0].SectionID, got[1].SectionID)
+	}
+}
+
+// An empty update is the reset a section member gets: it clears the overrides
+// and sends no sort_order, so the member keeps its place in the section.
+func TestUpdateComponent_EmptyClearsOnlyTheOverrides(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/v1/status-pages/p1/components/t1" {
+			t.Errorf("got %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"public_name":null,"public_description":null,"public_group":null}` {
+			t.Errorf("body = %s", body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", "", srv.Client())
+	if err := c.UpdateComponent(context.Background(), "p1", "t1", StatusPageComponentUpdate{}); err != nil {
+		t.Fatalf("UpdateComponent: %v", err)
+	}
+}
+
+func TestCreateSection_OmitsAnUnsetHeading(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/status-pages/p1/sections" {
+			t.Errorf("got %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"group_id":"g1"}` {
+			t.Errorf("body = %s", body)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"s1","group_id":"g1","group_name":"dns","heading":null,"members":["t1"],"left_off":0,"created_at":"2026-10-29T00:00:00Z"}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", "", srv.Client())
+	got, err := c.CreateSection(context.Background(), "p1", NewStatusPageSection{GroupID: "g1"})
+	if err != nil {
+		t.Fatalf("CreateSection: %v", err)
+	}
+	if got.ID != "s1" || got.Heading != nil || got.LeftOff != 0 {
+		t.Errorf("decoded = %+v", got)
+	}
+}
+
+// A null heading goes back to the group's name; omitting it would not parse
+// as a change.
+func TestUpdateSection_SendsANullHeading(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/api/v1/status-pages/p1/sections/s1" {
+			t.Errorf("got %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"heading":null}` {
+			t.Errorf("body = %s", body)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", "", srv.Client())
+	if err := c.UpdateSection(context.Background(), "p1", "s1", StatusPageSectionUpdate{}); err != nil {
+		t.Fatalf("UpdateSection: %v", err)
+	}
+}
+
+func TestHasCode_SeesThroughWrapping(t *testing.T) {
+	err := fmt.Errorf("remove: %w", &APIError{Status: 409, Code: CodeSectionMember})
+	if !HasCode(err, CodeSectionMember) || HasCode(err, CodeComponentAlreadyOnPage) || HasCode(nil, CodeSectionMember) {
+		t.Error("HasCode misread the error")
 	}
 }

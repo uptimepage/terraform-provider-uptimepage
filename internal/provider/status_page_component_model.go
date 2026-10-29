@@ -17,6 +17,7 @@ type statusPageComponentModel struct {
 	PublicGroup       types.String `tfsdk:"public_group"`
 	SortOrder         types.Int64  `tfsdk:"sort_order"`
 	MonitorName       types.String `tfsdk:"monitor_name"`
+	SectionID         types.String `tfsdk:"section_id"`
 }
 
 func (m statusPageComponentModel) toNew() client.NewStatusPageComponent {
@@ -29,12 +30,19 @@ func (m statusPageComponentModel) toNew() client.NewStatusPageComponent {
 	}
 }
 
+// toUpdate leaves the order out while it is unknown: a row a section made
+// keeps its place unless the config sets one.
 func (m statusPageComponentModel) toUpdate() client.StatusPageComponentUpdate {
+	var order *int
+	if !m.SortOrder.IsUnknown() && !m.SortOrder.IsNull() {
+		v := int(m.SortOrder.ValueInt64())
+		order = &v
+	}
 	return client.StatusPageComponentUpdate{
 		PublicName:        optString(m.PublicName),
 		PublicDescription: optString(m.PublicDescription),
 		PublicGroup:       optString(m.PublicGroup),
-		SortOrder:         int(m.SortOrder.ValueInt64()),
+		SortOrder:         order,
 	}
 }
 
@@ -53,6 +61,7 @@ func componentToModel(prior statusPageComponentModel, c *client.StatusPageCompon
 		PublicGroup:       keepOpt(prior.PublicGroup, c.PublicGroup, false),
 		SortOrder:         types.Int64Value(int64(c.SortOrder)),
 		MonitorName:       types.StringValue(c.MonitorName),
+		SectionID:         fromOptString(c.SectionID),
 	}
 }
 

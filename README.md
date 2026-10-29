@@ -61,14 +61,23 @@ API tokens are user-scoped, so every managed-resource request must also name an 
 | `uptimepage_target` | resource | Monitors. Check types: `http`, `tcp`, `ping`, `heartbeat`, `tls_cert`, `domain_expiry`, `dns`, `flow`, `manual`. The type is fixed after creation: changing it replaces the monitor. |
 | `uptimepage_notification_channel` | resource | `webhook`, `slack`, `telegram`, `discord`, `msteams`, `google_chat`, `mattermost`, `email`, `pagerduty`, `ntfy`, `gotify`, `pushover`, `whatsapp`, `sms`. |
 | `uptimepage_status_page` | resource | A status page: slug, branding, theme, and who can open it. Owner-only. |
-| `uptimepage_status_page_component` | resource | Curates one monitor onto a page, with per-page overrides. |
+| `uptimepage_status_page_component` | resource | Curates one monitor onto a page, with per-page overrides. On a section member it manages only the member's settings. |
+| `uptimepage_monitor_group` | resource | A monitor group: a label, or with `alert_as_one` one incident and one page for all its monitors. Monitors join with `group_id`. |
+| `uptimepage_status_page_section` | resource | Shows a monitor group on a page as a live section that follows the group's members. Owner-only. |
 | `uptimepage_target` | data source | Look up a target by id. |
 | `uptimepage_heartbeat` | data source | The URL a heartbeat job reports to. Sensitive: holding it is enough to report the job healthy or failed. |
 | `uptimepage_regions` | data source | The probe regions this instance serves, with `ids` ready to feed a target's `regions`. |
+| `uptimepage_monitor_group` | data source | Look up a monitor group by name. |
 
 On-call schedules and escalation policies are managed in the app or over the REST API, not by this provider. While an escalation policy applies to a monitor, its own or the organization default, the policy pages its levels instead of the monitor's own channels (its `alerts`, plus channels routed to it by tag). Those channels still receive monitoring-stopped notices. To keep a monitor's routing under an organization default, bind the monitor directly to a policy whose first level pages those channels. A policy bound to a monitor stays bound when Terraform updates the monitor in place, and is dropped when a new `check.type` replaces the monitor, so bind the new one again.
 
 Full reference under [`docs/`](docs/), generated from the schema.
+
+## Monitor groups
+
+A monitor joins a group with `group_id = uptimepage_monitor_group.<name>.id`, or by name with `group_name`, which creates a label group when no group has that name. The two conflict. While a group alerts as one, its own `alerts`, reminder and tags page for its members' failures, and the members' `alerts`, `renotify_interval_secs` and `tags` stay as written in their `.tf`: the server keeps them for when the monitor leaves the group, so a plan shows no drift. A group has no escalation attribute, as monitors have none. A group that already exists, made in the app or by `group_name`, is imported (`terraform import uptimepage_monitor_group.dns <id>`, the id being the last part of its settings page URL); declaring it fresh is refused with `409 GROUP_NAME_TAKEN`.
+
+`uptimepage_status_page_section` shows a group on a status page. Its members come and go with the group, so they need no `uptimepage_status_page_component` of their own; add one only to set a member's public name, description or order. It adopts the row the section made, and destroying it clears those settings and leaves the monitor on the page. Group writes need `targets:write` (and `targets:delete` to destroy one); sections, like the rest of a status page, need an owner's `status_page:write`.
 
 ## Regions
 

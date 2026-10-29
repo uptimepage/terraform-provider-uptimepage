@@ -43,6 +43,7 @@ func (d *targetDataSource) Schema(_ context.Context, _ datasource.SchemaRequest,
 			"interval":      dschema.Int64Attribute{Computed: true},
 			"enabled":       dschema.BoolAttribute{Computed: true},
 			"group_name":    dschema.StringAttribute{Computed: true},
+			"group_id":      dschema.StringAttribute{Computed: true},
 			"owner_user_id": dschema.StringAttribute{Computed: true},
 			"tags": dschema.SetAttribute{
 				Computed:    true,
@@ -64,6 +65,7 @@ type targetDataModel struct {
 	Interval    types.Int64  `tfsdk:"interval"`
 	Enabled     types.Bool   `tfsdk:"enabled"`
 	GroupName   types.String `tfsdk:"group_name"`
+	GroupID     types.String `tfsdk:"group_id"`
 	OwnerUserID types.String `tfsdk:"owner_user_id"`
 	Tags        types.Set    `tfsdk:"tags"`
 	Regions     types.Set    `tfsdk:"regions"`
@@ -99,6 +101,7 @@ func (d *targetDataSource) Read(ctx context.Context, req datasource.ReadRequest,
 		Interval:    types.Int64Value(int64(got.Interval)),
 		Enabled:     types.BoolValue(got.Enabled),
 		GroupName:   fromOptString(got.GroupName),
+		GroupID:     fromOptString(got.GroupID),
 		OwnerUserID: fromOptString(got.OwnerUserID),
 		Tags:        tags,
 		Regions:     regions,

@@ -123,6 +123,8 @@ func (p *Provider) Resources(_ context.Context) []func() resource.Resource {
 		newChannelResource,
 		newStatusPageResource,
 		newStatusPageComponentResource,
+		newMonitorGroupResource,
+		newStatusPageSectionResource,
 	}
 }
 
@@ -131,6 +133,7 @@ func (p *Provider) DataSources(_ context.Context) []func() datasource.DataSource
 		newTargetDataSource,
 		newHeartbeatDataSource,
 		newRegionsDataSource,
+		newMonitorGroupDataSource,
 	}
 }
 

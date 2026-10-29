@@ -32,6 +32,7 @@ output "target_name" {
 ### Read-Only
 
 - `enabled` (Boolean)
+- `group_id` (String)
 - `group_name` (String)
 - `interval` (Number)
 - `name` (String)

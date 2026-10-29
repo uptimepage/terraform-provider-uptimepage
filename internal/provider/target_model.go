@@ -23,6 +23,7 @@ type targetModel struct {
 	Tags                 types.Set    `tfsdk:"tags"`
 	Regions              types.Set    `tfsdk:"regions"`
 	GroupName            types.String `tfsdk:"group_name"`
+	GroupID              types.String `tfsdk:"group_id"`
 	OwnerUserID          types.String `tfsdk:"owner_user_id"`
 	Alerts               []alertModel `tfsdk:"alerts"`
 	AlertConfirmations   types.Int64  `tfsdk:"alert_confirmations"`
@@ -167,6 +168,7 @@ func (m targetModel) toNew(ctx context.Context) (client.NewTarget, diag.Diagnost
 		Tags:         m.tags(ctx, &diags),
 		Alerts:       m.alerts(),
 		GroupName:    optString(m.GroupName),
+		GroupID:      optString(m.GroupID),
 		OwnerUserID:  optString(m.OwnerUserID),
 		Regions:      m.regions(ctx, &diags),
 		FiringPolicy: m.firingPolicy(ctx, &diags),
@@ -191,6 +193,7 @@ func (m targetModel) toUpdate(ctx context.Context, cfg targetModel) (client.Targ
 		Tags:         m.tags(ctx, &diags),
 		Alerts:       m.alerts(),
 		GroupName:    optString(m.GroupName),
+		GroupID:      optString(m.GroupID),
 		OwnerUserID:  optString(cfg.OwnerUserID),
 		FiringPolicy: m.firingPolicy(ctx, &diags),
 	}
@@ -274,8 +277,12 @@ func stringsToSet(ctx context.Context, values []string, diags *diag.Diagnostics)
 }
 
 func (m targetModel) alerts() []client.AlertBinding {
-	out := make([]client.AlertBinding, 0, len(m.Alerts))
-	for _, a := range m.Alerts {
+	return alertsToWire(m.Alerts)
+}
+
+func alertsToWire(alerts []alertModel) []client.AlertBinding {
+	out := make([]client.AlertBinding, 0, len(alerts))
+	for _, a := range alerts {
 		out = append(out, client.AlertBinding{ChannelID: a.ChannelID.ValueString()})
 	}
 	return out
@@ -520,7 +527,6 @@ func targetToModel(ctx context.Context, prior targetModel, t *client.Target) (ta
 		Interval:             types.Int64Value(int64(t.Interval)),
 		Enabled:              types.BoolValue(t.Enabled),
 		Tags:                 tags,
-		GroupName:            fromOptString(t.GroupName),
 		OwnerUserID:          fromOptString(t.OwnerUserID),
 		Alerts:               alertsToModel(t.Alerts),
 		AlertConfirmations:   types.Int64Value(int64(t.AlertConfirmations)),
@@ -529,10 +535,23 @@ func targetToModel(ctx context.Context, prior targetModel, t *client.Target) (ta
 		RegionPolicy:         regionPolicyToModel(ctx, t.RegionPolicy, &diags),
 	}
 
+	m.GroupName, m.GroupID = groupToModel(prior, t)
+
 	check, cd := checkToModel(ctx, prior.Check, t.Check)
 	diags.Append(cd...)
 	m.Check = check
 	return m, diags
+}
+
+// groupToModel reads the group back in the attribute the config names it by,
+// leaving the other null. A monitor named by neither (an import) reads by
+// name. The API trims the name and drops a blank one, so the user's spelling
+// is kept when it means the same group.
+func groupToModel(prior targetModel, t *client.Target) (name, id types.String) {
+	if !prior.GroupID.IsNull() {
+		return types.StringNull(), fromOptString(t.GroupID)
+	}
+	return keepOpt(prior.GroupName, t.GroupName, false), types.StringNull()
 }
 
 func alertsToModel(in []client.AlertBinding) []alertModel {

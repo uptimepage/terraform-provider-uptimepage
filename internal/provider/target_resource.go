@@ -97,6 +97,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Optional:    true,
 				Computed:    true,
 				ElementType: types.StringType,
+				Validators:  tagValidators(),
 				Default:     setdefault.StaticValue(types.SetValueMust(types.StringType, []attr.Value{})),
 				Description: "Free-form tags.",
 			},
@@ -118,7 +119,16 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			},
 			"group_name": schema.StringAttribute{
 				Optional:    true,
-				Description: "Operator-side grouping label.",
+				Description: "The monitor group to put this monitor in, by name; a name no group has yet creates a label group. Leave both this and group_id out to keep the monitor out of any group.",
+			},
+			"group_id": schema.StringAttribute{
+				Optional: true,
+				Description: "The monitor group to put this monitor in, by id (lowercase UUID), as `uptimepage_monitor_group.<name>.id`. Conflicts with group_name. " +
+					"While the group alerts as one, the group's channels and reminder page for its failures and this monitor's own alerts, reminder and escalation policy stay quiet. They are kept as written, so the plan shows no drift, and apply again once the monitor leaves the group or the group stops alerting as one.",
+				Validators: []validator.String{
+					uuidValidator(),
+					stringvalidator.ConflictsWith(path.MatchRoot("group_name")),
+				},
 			},
 			"owner_user_id": schema.StringAttribute{
 				Optional:      true,
@@ -127,27 +137,13 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 				Validators:    []validator.String{uuidValidator()},
 			},
-			"alerts": schema.ListNestedAttribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     listdefault.StaticValue(types.ListValueMust(alertObjectType, []attr.Value{})),
-				Description: "Notification channels this target alerts through. When it fires is the target's own alert_confirmations, notify_recovery and renotify_interval_secs. While an escalation policy applies (one bound to this monitor in the app or over the API, or the organization default), the policy pages its levels instead of these channels; these channels still receive monitoring-stopped notices.",
-				NestedObject: schema.NestedAttributeObject{
-					Attributes: map[string]schema.Attribute{
-						"channel_id": schema.StringAttribute{
-							Required:    true,
-							Description: "Notification channel id (lowercase UUID).",
-							Validators:  []validator.String{uuidValidator()},
-						},
-					},
-				},
-			},
+			"alerts": alertsAttribute("Notification channels this target alerts through. When it fires is the target's own alert_confirmations, notify_recovery and renotify_interval_secs. While an escalation policy applies (one bound to this monitor in the app or over the API, or the organization default), the policy pages its levels instead of these channels; these channels still receive monitoring-stopped notices."),
 			"alert_confirmations": schema.Int64Attribute{
 				Optional:      true,
 				Computed:      true,
 				Default:       int64default.StaticInt64(2),
 				Description:   "Consecutive failing checks before an incident opens, and passing checks before it closes. A manual monitor takes exactly 1, which is planned when this is left out.",
-				Validators:    []validator.Int64{int64validator.Between(1, math.MaxUint32)},
+				Validators:    []validator.Int64{int64validator.Between(1, math.MaxInt32)},
 				PlanModifiers: []planmodifier.Int64{oneConfirmationWhenManual()},
 			},
 			"notify_recovery": schema.BoolAttribute{
@@ -161,7 +157,7 @@ func (r *targetResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Computed:    true,
 				Default:     int64default.StaticInt64(3600),
 				Description: "Seconds before the first reminder while an incident stays unacknowledged; each further reminder waits twice as long, up to a day. Under an escalation policy the reminders start once the policy's last page is sent. 0 turns reminders off; otherwise at least 60.",
-				Validators:  []validator.Int64{int64validator.Any(int64validator.OneOf(0), int64validator.Between(60, math.MaxUint32))},
+				Validators:  renotifyValidators(),
 			},
 			"region_policy": schema.SingleNestedAttribute{
 				Optional: true,
@@ -350,6 +346,30 @@ func httpCheckAttributes() map[string]schema.Attribute {
 		},
 		"ip_version": ipVersionAttribute(),
 	}
+}
+
+// alertsAttribute is a channel list, bound as a target and a group bind it.
+func alertsAttribute(description string) schema.Attribute {
+	return schema.ListNestedAttribute{
+		Optional:    true,
+		Computed:    true,
+		Default:     listdefault.StaticValue(types.ListValueMust(alertObjectType, []attr.Value{})),
+		Description: description,
+		NestedObject: schema.NestedAttributeObject{
+			Attributes: map[string]schema.Attribute{
+				"channel_id": schema.StringAttribute{
+					Required:    true,
+					Description: "Notification channel id (lowercase UUID).",
+					Validators:  []validator.String{uuidValidator()},
+				},
+			},
+		},
+	}
+}
+
+// renotifyValidators: off, or a minute up to what the API's INTEGER holds.
+func renotifyValidators() []validator.Int64 {
+	return []validator.Int64{int64validator.Any(int64validator.OneOf(0), int64validator.Between(60, math.MaxInt32))}
 }
 
 func ipVersionAttribute() schema.Attribute {

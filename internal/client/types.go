@@ -15,6 +15,7 @@ type Target struct {
 	Tags        []string       `json:"tags"`
 	Alerts      []AlertBinding `json:"alerts"`
 	GroupName   *string        `json:"group_name"`
+	GroupID     *string        `json:"group_id"`
 	OwnerUserID *string        `json:"owner_user_id"`
 	CreatedAt   string         `json:"created_at,omitempty"`
 	UpdatedAt   string         `json:"updated_at,omitempty"`
@@ -42,6 +43,7 @@ type NewTarget struct {
 	Tags        []string       `json:"tags,omitempty"`
 	Alerts      []AlertBinding `json:"alerts,omitempty"`
 	GroupName   *string        `json:"group_name,omitempty"`
+	GroupID     *string        `json:"group_id,omitempty"`
 	OwnerUserID *string        `json:"owner_user_id,omitempty"`
 	Regions     []string       `json:"regions,omitempty"`
 	FiringPolicy
@@ -49,8 +51,9 @@ type NewTarget struct {
 
 // TargetUpdate is the PATCH /targets/{id} body. Terraform always holds the full
 // desired state, so every field is sent on every update — no partial-patch
-// bookkeeping. GroupName is a pointer so a nil marshals to JSON null, which
-// clears the field server-side (present-null = clear); a value sets it.
+// bookkeeping. The group travels as GroupID when set, else as GroupName, whose
+// nil marshals to JSON null and takes the monitor out of its group: the API
+// refuses a body naming both, a null one included.
 // OwnerUserID is the one exception: the config either names an owner or leaves
 // ownership to the server, so a nil is omitted rather than sent as null.
 // Tags/Alerts must be non-nil (UpdateTarget normalizes) so an empty slice
@@ -63,9 +66,21 @@ type TargetUpdate struct {
 	Enabled     bool           `json:"enabled"`
 	Tags        []string       `json:"tags"`
 	Alerts      []AlertBinding `json:"alerts"`
-	GroupName   *string        `json:"group_name"`
+	GroupName   *string        `json:"-"`
+	GroupID     *string        `json:"group_id,omitempty"`
 	OwnerUserID *string        `json:"owner_user_id,omitempty"`
 	FiringPolicy
+}
+
+func (u TargetUpdate) MarshalJSON() ([]byte, error) {
+	type wire TargetUpdate
+	if u.GroupID != nil {
+		return json.Marshal(wire(u))
+	}
+	return json.Marshal(struct {
+		wire
+		GroupName *string `json:"group_name"`
+	}{wire(u), u.GroupName})
 }
 
 // RegionPolicy is how many probe regions must agree before an incident opens.

@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
-	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -51,7 +51,10 @@ func (r *statusPageComponentResource) Schema(_ context.Context, _ resource.Schem
 	replace := []planmodifier.String{stringplanmodifier.RequiresReplace()}
 	resp.Schema = schema.Schema{
 		Description: "Curates one monitor onto a status page, with optional per-page " +
-			"overrides. Changing the page or the target replaces the resource.",
+			"overrides. Changing the page or the target replaces the resource. " +
+			"A monitor an uptimepage_status_page_section shows is already on the page: " +
+			"this resource then adopts its row and manages only its settings, and " +
+			"destroying it clears them and leaves the monitor on the page.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed:      true,
@@ -78,17 +81,21 @@ func (r *statusPageComponentResource) Schema(_ context.Context, _ resource.Schem
 			},
 			"public_group": schema.StringAttribute{
 				Optional:    true,
-				Description: "Group heading the component renders under.",
+				Description: "Group heading the component renders under. A section member renders under its section's heading instead.",
 			},
 			"sort_order": schema.Int64Attribute{
-				Optional:    true,
-				Computed:    true,
-				Default:     int64default.StaticInt64(0),
-				Description: "Order within the group (ascending).",
+				Optional:      true,
+				Computed:      true,
+				Description:   "Order within the group (ascending). Left out, a new component takes 0 and a section member keeps its place; removing it later keeps the order it has.",
+				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 			},
 			"monitor_name": schema.StringAttribute{
 				Computed:    true,
 				Description: "The monitor's operator-side name (read-only).",
+			},
+			"section_id": schema.StringAttribute{
+				Computed:    true,
+				Description: "The section that shows this monitor through its group, or null (read-only).",
 			},
 		},
 	}
@@ -101,7 +108,7 @@ func (r *statusPageComponentResource) Create(ctx context.Context, req resource.C
 		return
 	}
 	pageID := plan.PageID.ValueString()
-	if err := r.api.AddComponent(ctx, pageID, plan.toNew()); err != nil {
+	if err := r.add(ctx, pageID, plan); err != nil {
 		resp.Diagnostics.AddError("Add status page component failed", err.Error())
 		return
 	}
@@ -114,6 +121,10 @@ func (r *statusPageComponentResource) Create(ctx context.Context, req resource.C
 		fallback := plan
 		fallback.ID = types.StringValue(componentID(pageID, plan.TargetID.ValueString()))
 		fallback.MonitorName = types.StringNull()
+		fallback.SectionID = types.StringNull()
+		if fallback.SortOrder.IsUnknown() {
+			fallback.SortOrder = types.Int64Null()
+		}
 		resp.Diagnostics.Append(resp.State.Set(ctx, fallback)...)
 		resp.Diagnostics.AddError("Read component after add failed", err.Error())
 		return
@@ -167,6 +178,10 @@ func (r *statusPageComponentResource) Update(ctx context.Context, req resource.U
 		fallback := plan
 		fallback.ID = types.StringValue(componentID(pageID, targetID))
 		fallback.MonitorName = types.StringNull()
+		fallback.SectionID = types.StringNull()
+		if fallback.SortOrder.IsUnknown() {
+			fallback.SortOrder = types.Int64Null()
+		}
 		resp.Diagnostics.Append(resp.State.Set(ctx, fallback)...)
 		resp.Diagnostics.AddError("Read component after update failed", err.Error())
 		return
@@ -184,10 +199,40 @@ func (r *statusPageComponentResource) Delete(ctx context.Context, req resource.D
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	err := r.api.RemoveComponent(ctx, state.PageID.ValueString(), state.TargetID.ValueString())
-	if err != nil && !client.IsNotFound(err) {
+	if err := r.remove(ctx, state.PageID.ValueString(), state.TargetID.ValueString()); err != nil {
 		resp.Diagnostics.AddError("Remove status page component failed", err.Error())
 	}
+}
+
+// remove takes the monitor off the page, or clears its settings when a section
+// shows it: the section keeps it there until the monitor leaves the group.
+func (r *statusPageComponentResource) remove(ctx context.Context, pageID, targetID string) error {
+	err := r.api.RemoveComponent(ctx, pageID, targetID)
+	if client.HasCode(err, client.CodeSectionMember) {
+		// An empty update clears the overrides and leaves the order.
+		err = r.api.UpdateComponent(ctx, pageID, targetID, client.StatusPageComponentUpdate{})
+	}
+	if client.IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+// add puts the monitor on the page, or adopts the row a section already gave
+// it: the section owns that row, so only its settings are this resource's.
+func (r *statusPageComponentResource) add(ctx context.Context, pageID string, plan statusPageComponentModel) error {
+	err := r.api.AddComponent(ctx, pageID, plan.toNew())
+	if !client.HasCode(err, client.CodeComponentAlreadyOnPage) {
+		return err
+	}
+	got, ferr := r.findComponent(ctx, pageID, plan.TargetID.ValueString())
+	if ferr != nil {
+		return ferr
+	}
+	if got == nil || got.SectionID == nil {
+		return err
+	}
+	return r.api.UpdateComponent(ctx, pageID, plan.TargetID.ValueString(), plan.toUpdate())
 }
 
 func (r *statusPageComponentResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {

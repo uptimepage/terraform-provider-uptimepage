@@ -259,7 +259,7 @@ func TestComponentModel_RoundTrip(t *testing.T) {
 		t.Errorf("public_group should be nil")
 	}
 	upd := m.toUpdate()
-	if upd.PublicGroup != nil || upd.SortOrder != 2 {
+	if upd.PublicGroup != nil || upd.SortOrder == nil || *upd.SortOrder != 2 {
 		t.Errorf("toUpdate = %+v", upd)
 	}
 

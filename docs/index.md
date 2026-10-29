@@ -120,10 +120,12 @@ terraform import uptimepage_target.api                  0192f3a4-5b6c-7d8e-9f01-
 terraform import uptimepage_notification_channel.slack  0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee
 terraform import uptimepage_status_page.public          0192f3a4-5b6c-7d8e-9f01-23456789abcd
 terraform import uptimepage_status_page_component.api   0192f3a4-5b6c-7d8e-9f01-23456789abcd:0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee
+terraform import uptimepage_monitor_group.dns           0192bbbb-cccc-dddd-eeee-ffffffffffff
+terraform import uptimepage_status_page_section.dns     0192f3a4-5b6c-7d8e-9f01-23456789abcd:0192cccc-dddd-eeee-ffff-000000000000
 ```
 
-Components import as `status_page_id:target_id`. Everything else imports by its
-own id.
+Components import as `status_page_id:target_id` and sections as
+`status_page_id:section_id`. Everything else imports by its own id.
 
 Secrets never come back from the API, by design, so set them in config after
 importing. On a target that is `check.http.basic_auth` and

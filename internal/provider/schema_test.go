@@ -30,6 +30,8 @@ func TestProviderSchema_Valid(t *testing.T) {
 		"uptimepage_notification_channel",
 		"uptimepage_status_page",
 		"uptimepage_status_page_component",
+		"uptimepage_monitor_group",
+		"uptimepage_status_page_section",
 	} {
 		if _, ok := resp.ResourceSchemas[name]; !ok {
 			t.Errorf("%s resource schema missing", name)
@@ -39,6 +41,7 @@ func TestProviderSchema_Valid(t *testing.T) {
 		"uptimepage_target",
 		"uptimepage_heartbeat",
 		"uptimepage_regions",
+		"uptimepage_monitor_group",
 	} {
 		if _, ok := resp.DataSourceSchemas[name]; !ok {
 			t.Errorf("%s data source schema missing", name)

@@ -37,3 +37,15 @@ func IsNotFound(err error) bool {
 	var ae *APIError
 	return errors.As(err, &ae) && ae.Status == 404
 }
+
+// HasCode reports whether err is an API error carrying code.
+func HasCode(err error, code string) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.Code == code
+}
+
+// Error codes the provider branches on.
+const (
+	CodeComponentAlreadyOnPage = "COMPONENT_ALREADY_ON_PAGE"
+	CodeSectionMember          = "SECTION_MEMBER"
+)

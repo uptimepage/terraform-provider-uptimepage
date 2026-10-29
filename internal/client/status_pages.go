@@ -165,7 +165,9 @@ func (c *Client) DeleteStatusPage(ctx context.Context, id string) error {
 // StatusPageComponent is the read shape of one curated monitor. MonitorName is
 // the operator-side target name, returned for reference (read-only).
 type StatusPageComponent struct {
-	TargetID          string  `json:"target_id"`
+	TargetID string `json:"target_id"`
+	// Set while a section shows the monitor through its group.
+	SectionID         *string `json:"section_id,omitempty"`
 	MonitorName       string  `json:"monitor_name"`
 	PublicName        *string `json:"public_name,omitempty"`
 	PublicDescription *string `json:"public_description,omitempty"`
@@ -184,12 +186,13 @@ type NewStatusPageComponent struct {
 
 // StatusPageComponentUpdate is the PATCH body for a component's curation. The
 // string pointers are sent unconditionally (no omitempty): a nil marshals to
-// JSON null, which clears the override; Terraform always sends full state.
+// JSON null, which clears the override; Terraform always sends full state. A
+// nil SortOrder keeps the row's place.
 type StatusPageComponentUpdate struct {
 	PublicName        *string `json:"public_name"`
 	PublicDescription *string `json:"public_description"`
 	PublicGroup       *string `json:"public_group"`
-	SortOrder         int     `json:"sort_order"`
+	SortOrder         *int    `json:"sort_order,omitempty"`
 }
 
 func componentsPath(pageID string) string {
@@ -216,4 +219,57 @@ func (c *Client) UpdateComponent(ctx context.Context, pageID, targetID string, i
 
 func (c *Client) RemoveComponent(ctx context.Context, pageID, targetID string) error {
 	return c.do(ctx, http.MethodDelete, componentsPath(pageID)+"/"+url.PathEscape(targetID), nil, nil)
+}
+
+// --- sections (a monitor group shown on a page) ---
+
+// StatusPageSection is the read shape of a group shown on a page. Its members
+// are the group's monitors, kept in step with the group by the server.
+type StatusPageSection struct {
+	ID      string  `json:"id"`
+	GroupID string  `json:"group_id"`
+	Heading *string `json:"heading,omitempty"`
+	// Members the plan's public component limit keeps off the page.
+	LeftOff uint32 `json:"left_off"`
+}
+
+// NewStatusPageSection is the POST body. A nil heading shows the group's name.
+type NewStatusPageSection struct {
+	GroupID string  `json:"group_id"`
+	Heading *string `json:"heading,omitempty"`
+}
+
+// StatusPageSectionUpdate is the PATCH body; a nil heading marshals to null,
+// which goes back to the group's name.
+type StatusPageSectionUpdate struct {
+	Heading *string `json:"heading"`
+}
+
+func sectionsPath(pageID string) string {
+	return statusPagesPath + "/" + url.PathEscape(pageID) + "/sections"
+}
+
+func (c *Client) CreateSection(ctx context.Context, pageID string, in NewStatusPageSection) (*StatusPageSection, error) {
+	var out StatusPageSection
+	if err := c.do(ctx, http.MethodPost, sectionsPath(pageID), in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *Client) ListSections(ctx context.Context, pageID string) ([]StatusPageSection, error) {
+	var out []StatusPageSection
+	if err := c.do(ctx, http.MethodGet, sectionsPath(pageID), nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) UpdateSection(ctx context.Context, pageID, sectionID string, in StatusPageSectionUpdate) error {
+	return c.do(ctx, http.MethodPatch, sectionsPath(pageID)+"/"+url.PathEscape(sectionID), in, nil)
+}
+
+// DeleteSection takes the group's monitors off the page with it.
+func (c *Client) DeleteSection(ctx context.Context, pageID, sectionID string) error {
+	return c.do(ctx, http.MethodDelete, sectionsPath(pageID)+"/"+url.PathEscape(sectionID), nil, nil)
 }
