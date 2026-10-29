@@ -457,7 +457,11 @@ func (r *channelResource) Create(ctx context.Context, req resource.CreateRequest
 
 func (r *channelResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state channelModel
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if id, imported := importedID(ctx, req.State, "config", &resp.Diagnostics); imported {
+		state.ID = id
+	} else {
+		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	}
 	if resp.Diagnostics.HasError() {
 		return
 	}

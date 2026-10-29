@@ -11,7 +11,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
 	"github.com/uptimepage/terraform-provider-uptimepage/internal/client"
 )
@@ -84,4 +86,21 @@ func (v trimmedValidator) ValidateString(ctx context.Context, req validator.Stri
 // tagValidators are the plan-time half of the API's tag rules.
 func tagValidators() []validator.Set {
 	return []validator.Set{setvalidator.ValueStringsAre(trimmedValidator{})}
+}
+
+// importedID returns the id of a state an import has just written. Only the
+// id is set then, and a null nested block cannot decode into its struct, so
+// Read starts from the id alone: every mapper takes a zero prior as nothing
+// known.
+func importedID(ctx context.Context, st tfsdk.State, block string, diags *diag.Diagnostics) (types.String, bool) {
+	var attrs map[string]tftypes.Value
+	if err := st.Raw.As(&attrs); err != nil {
+		return types.String{}, false
+	}
+	if v, ok := attrs[block]; !ok || !v.IsNull() {
+		return types.String{}, false
+	}
+	var id types.String
+	diags.Append(st.GetAttribute(ctx, path.Root("id"), &id)...)
+	return id, true
 }

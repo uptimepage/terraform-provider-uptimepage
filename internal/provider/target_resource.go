@@ -675,7 +675,11 @@ func (r *targetResource) Create(ctx context.Context, req resource.CreateRequest,
 
 func (r *targetResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state targetModel
-	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	if id, imported := importedID(ctx, req.State, "check", &resp.Diagnostics); imported {
+		state.ID = id
+	} else {
+		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+	}
 	if resp.Diagnostics.HasError() {
 		return
 	}
