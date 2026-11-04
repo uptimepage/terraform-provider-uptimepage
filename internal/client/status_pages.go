@@ -37,6 +37,7 @@ type StatusPage struct {
 	PublicHideFromSearch bool    `json:"public_hide_from_search"`
 	PublicWebsiteURL     *string `json:"public_website_url,omitempty"`
 	PublicLocale         *string `json:"public_locale,omitempty"`
+	PublicTimezone       *string `json:"public_timezone,omitempty"`
 	LogoURL              *string `json:"logo_url,omitempty"`
 	StatusURL            *string `json:"status_url,omitempty"`
 	// Nil until the page's access is first written.
@@ -107,14 +108,16 @@ type NewStatusPage struct {
 
 // StatusPageUpdate is the PATCH body, sent as full desired state. Branding is a
 // nested block that replaces the page's display branding wholesale. The
-// language and access are partial fields beside it: nil leaves them as is.
+// language, time zone and access are partial fields beside it: nil leaves
+// them as is.
 type StatusPageUpdate struct {
-	Name         string         `json:"name"`
-	Slug         string         `json:"slug"`
-	Enabled      bool           `json:"enabled"`
-	PublicLocale *string        `json:"public_locale,omitempty"`
-	Branding     StatusBranding `json:"branding"`
-	Access       *PageAccess    `json:"access,omitempty"`
+	Name           string         `json:"name"`
+	Slug           string         `json:"slug"`
+	Enabled        bool           `json:"enabled"`
+	PublicLocale   *string        `json:"public_locale,omitempty"`
+	PublicTimezone *string        `json:"public_timezone,omitempty"`
+	Branding       StatusBranding `json:"branding"`
+	Access         *PageAccess    `json:"access,omitempty"`
 }
 
 // StatusBranding is the page's display branding, sent whole on every PATCH. A

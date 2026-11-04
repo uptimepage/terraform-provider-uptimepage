@@ -4,6 +4,8 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"time"
+	_ "time/tzdata"
 
 	"unicode/utf8"
 
@@ -78,6 +80,32 @@ func (v websiteURLValidator) ValidateString(ctx context.Context, req validator.S
 }
 
 var websiteURL = regexp.MustCompile(`(?i)^https?://[^/?#\s]+`)
+
+// timezoneValidator fails a misspelt zone at plan: at apply, the create would
+// leave a tainted page for Terraform to replace. The embedded tzdata covers a
+// host with none, and the server has the last word on anything that loads here.
+type timezoneValidator struct{}
+
+func (timezoneValidator) Description(context.Context) string {
+	return "must be an IANA time zone name, such as Europe/Berlin"
+}
+
+func (v timezoneValidator) MarkdownDescription(ctx context.Context) string {
+	return v.Description(ctx)
+}
+
+func (v timezoneValidator) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
+		return
+	}
+	name := req.ConfigValue.ValueString()
+	if name != "" && name != "Local" {
+		if _, err := time.LoadLocation(name); err == nil {
+			return
+		}
+	}
+	resp.Diagnostics.AddAttributeError(req.Path, "Invalid Attribute Value", v.Description(ctx))
+}
 
 func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
@@ -166,6 +194,18 @@ func (r *statusPageResource) Schema(_ context.Context, _ resource.SchemaRequest,
 				// into the plan, and the server answers "en" to an omitted field.
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseNonNullStateForUnknown()},
 			},
+			"timezone": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				Description: "IANA time zone of the times in the page's subscriber emails, such as `Europe/Berlin`. " +
+					"The page itself shows each visitor their own time. " +
+					"Omit to choose the zone in the console instead; a new page starts in UTC. " +
+					"Removing it keeps the zone it set, so set `UTC` to switch back. Needs a server with page time zones.",
+				Validators: []validator.String{timezoneValidator{}},
+				// Not UseStateForUnknown, for the same reason as locale: the server
+				// answers "UTC" to an omitted field.
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseNonNullStateForUnknown()},
+			},
 			"logo_url": schema.StringAttribute{
 				Computed:    true,
 				Description: "Versioned public logo URL, or null when no logo. Upload via the UI.",
@@ -198,8 +238,9 @@ func (r *statusPageResource) Create(ctx context.Context, req resource.CreateRequ
 	update.Access = nil
 	final, err := r.api.UpdateStatusPage(ctx, created.ID, update)
 	if err != nil {
-		// The page exists but branding didn't apply. Persist what we have so a
-		// re-apply reconciles via Update instead of re-creating into a slug clash.
+		// The page exists but branding didn't apply. Persist what we have:
+		// Terraform taints it, so the next apply replaces the page instead of
+		// creating into a slug clash.
 		resp.Diagnostics.Append(resp.State.Set(ctx, statusPageToModel(plan, created))...)
 		resp.Diagnostics.AddError("Apply status page branding failed", err.Error())
 		return

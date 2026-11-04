@@ -23,6 +23,7 @@ type statusPageModel struct {
 	HideFromSearch types.Bool   `tfsdk:"hide_from_search"`
 	WebsiteURL     types.String `tfsdk:"website_url"`
 	Locale         types.String `tfsdk:"locale"`
+	Timezone       types.String `tfsdk:"timezone"`
 	LogoURL        types.String `tfsdk:"logo_url"`
 	StatusURL      types.String `tfsdk:"status_url"`
 	Access         types.Object `tfsdk:"access"`
@@ -43,10 +44,11 @@ func (m statusPageModel) toNew() client.NewStatusPage {
 
 func (m statusPageModel) toUpdate() client.StatusPageUpdate {
 	return client.StatusPageUpdate{
-		Name:         m.Name.ValueString(),
-		Slug:         m.Slug.ValueString(),
-		Enabled:      m.Enabled.ValueBool(),
-		PublicLocale: optString(m.Locale),
+		Name:           m.Name.ValueString(),
+		Slug:           m.Slug.ValueString(),
+		Enabled:        m.Enabled.ValueBool(),
+		PublicLocale:   optString(m.Locale),
+		PublicTimezone: optString(m.Timezone),
 		Branding: client.StatusBranding{
 			PublicDisplayName:    optString(m.DisplayName),
 			PublicAbout:          optString(m.About),
@@ -77,6 +79,7 @@ func statusPageToModel(prior statusPageModel, p *client.StatusPage) statusPageMo
 		HideFromSearch: types.BoolValue(p.PublicHideFromSearch),
 		WebsiteURL:     keepOpt(prior.WebsiteURL, p.PublicWebsiteURL, false),
 		Locale:         fromOptString(p.PublicLocale),
+		Timezone:       fromOptString(p.PublicTimezone),
 		LogoURL:        fromOptString(p.LogoURL),
 		StatusURL:      fromOptString(p.StatusURL),
 		Access:         pageAccessToModel(prior.Access, p.Access),

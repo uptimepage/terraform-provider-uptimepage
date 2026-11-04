@@ -87,6 +87,7 @@ resource "uptimepage_status_page" "dealer" {
 - `locale` (String) Language of the page's own labels, dates and subscriber emails, one of `en`, `de`. Text you write is shown as written. Omit to choose the language in the console instead; a new page starts in English. Removing it keeps the language it set, so set `en` to switch back. Needs a server with page languages.
 - `show_powered_by` (Boolean) Pin the 'powered by' footer on or off. Omit to inherit the deployment default. Honoured only on plans that sell white-label; elsewhere the badge renders whatever this says.
 - `style` (String) Visual theme. Omit to choose the theme in the console instead; a new page starts on `default`. Removing it keeps the theme it set, so set `default` to switch back.
+- `timezone` (String) IANA time zone of the times in the page's subscriber emails, such as `Europe/Berlin`. The page itself shows each visitor their own time. Omit to choose the zone in the console instead; a new page starts in UTC. Removing it keeps the zone it set, so set `UTC` to switch back. Needs a server with page time zones.
 - `website_url` (String) Your own site. The page header links here, so a reader who arrived from it can get back. `http(s)` only, at most 200 characters.
 
 ### Read-Only

@@ -105,6 +105,32 @@ func TestUpdateStatusPage_SendsAndDecodesLocale(t *testing.T) {
 	}
 }
 
+func TestUpdateStatusPage_SendsAndDecodesTimezone(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var raw map[string]json.RawMessage
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &raw)
+		if got := string(raw["public_timezone"]); got != `"Europe/Berlin"` {
+			t.Errorf("public_timezone = %s, want \"Europe/Berlin\"", got)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"p1","slug":"acme","name":"Acme","enabled":true,"public_style":"default",` +
+			`"show_powered_by":true,"public_hide_from_search":false,"public_timezone":"Europe/Berlin"}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "tok", "", srv.Client())
+	got, err := c.UpdateStatusPage(context.Background(), "p1", StatusPageUpdate{
+		Name: "Acme", Slug: "acme", PublicTimezone: ptr("Europe/Berlin"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateStatusPage: %v", err)
+	}
+	if got.PublicTimezone == nil || *got.PublicTimezone != "Europe/Berlin" {
+		t.Errorf("public_timezone = %v, want Europe/Berlin", got.PublicTimezone)
+	}
+}
+
 // The read shape the API answers for a private page, as written by its own
 // serializer.
 func TestGetStatusPage_DecodesAccess(t *testing.T) {
