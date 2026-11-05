@@ -17,7 +17,7 @@ var StatusPageStyles = []string{
 
 // StatusPageLocales is the set of accepted public_locale values, mirrored from
 // the API's CHECK list.
-var StatusPageLocales = []string{"en", "de"}
+var StatusPageLocales = []string{"en", "de", "es", "pt-PT"}
 
 // StatusPage is the read shape (`StatusPageView`). Branding fields are flattened
 // onto the page; logo_url / status_url are server-derived and read-only.
