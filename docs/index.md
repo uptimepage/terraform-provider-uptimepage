@@ -48,6 +48,7 @@ The [end-to-end configuration](https://github.com/uptimepage/terraform-provider-
 | `uptimepage_notification_channel` | Where an alert goes. Fourteen types: webhook, Slack, Telegram, Discord, Microsoft Teams, Google Chat, Mattermost, email, PagerDuty, ntfy, Gotify, Pushover, WhatsApp and SMS. |
 | `uptimepage_status_page` | A status page: subdomain slug, branding, theme, and who can open it. Owner-only. |
 | `uptimepage_status_page_component` | A monitor shown on a status page. |
+| `uptimepage_alert_source` | A URL that Prometheus Alertmanager, Grafana, Datadog or a script posts its alerts to, paging through an escalation policy or channels. |
 
 Three data sources read what Terraform does not own: `uptimepage_target` for a
 monitor created elsewhere, `uptimepage_heartbeat` for the URL a heartbeat job
@@ -122,6 +123,7 @@ terraform import uptimepage_status_page.public          0192f3a4-5b6c-7d8e-9f01-
 terraform import uptimepage_status_page_component.api   0192f3a4-5b6c-7d8e-9f01-23456789abcd:0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee
 terraform import uptimepage_monitor_group.dns           0192bbbb-cccc-dddd-eeee-ffffffffffff
 terraform import uptimepage_status_page_section.dns     0192f3a4-5b6c-7d8e-9f01-23456789abcd:0192cccc-dddd-eeee-ffff-000000000000
+terraform import uptimepage_alert_source.prometheus     0192dddd-eeee-ffff-0000-111111111111
 ```
 
 Components import as `status_page_id:target_id` and sections as
@@ -137,6 +139,9 @@ Pushover `user`), or the `auth_token`, `api_key`, `api_secret` and `api_token` a
 SMS provider needs. A Mattermost `webhook_url` is a secret in full: its path
 carries the key. A `mention` is never a secret — on Slack, Discord or
 Mattermost — so it reads back visible.
+On a Grafana alert source it is `signing_secret` or `signing_secret_wo`; the
+source reads back whether it is signed, and an imported one with neither in
+config keeps the secret it has.
 
 ## Hosted or self-hosted
 
@@ -150,9 +155,12 @@ Authentication uses an API token, passed as `token` or `UPTIMEPAGE_TOKEN`. Grant
 it the least scope the run needs: `targets:write` and `channels:write` cover
 monitors and channels, `status_page:write` covers pages and their components,
 and `write` implies `read`. Add the `:delete` scopes if you run
-`terraform destroy` or change a monitor's `check.type`, which replaces it. Status-page writes are owner-only. Binding a token to one
+`terraform destroy`, change a monitor's `check.type` or an alert source's `kind`,
+which replaces it. Status-page writes are owner-only. Binding a token to one
 organization keeps a leaked token away from your others, and `org` must then
-match it.
+match it. Alert sources need `alert_sources:write` (and `alert_sources:delete`
+to destroy or replace one), and binding one to an escalation policy takes an
+organization owner's token with `oncall:write`.
 
 One exception to reading with a read scope: the `uptimepage_heartbeat` data
 source needs `targets:write`. Its ping URL is a capability rather than a fact
